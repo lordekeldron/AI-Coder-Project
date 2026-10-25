@@ -4,6 +4,9 @@ import { fileURLToPath, URL } from 'node:url';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Relative base so the built index.html loads correctly under Electron's
+  // file:// loader (absolute paths break in that context).
+  base: './',
   plugins: [react()],
   resolve: {
     alias: {
@@ -12,5 +15,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
+  },
+  build: {
+    outDir: 'dist',
   },
 });
