@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, Send, Sparkles, Terminal } from 'lucide-react';
+import { Menu, Send, Sparkles, Terminal, Github } from 'lucide-react';
 import { supabase, type Conversation, type Message } from '@/lib/supabase';
 import { runAgent, type AgentResponse } from '@/lib/agent';
 import { Sidebar } from '@/components/Sidebar';
 import { MessageList } from '@/components/Message';
+import { GithubPanel } from '@/components/GithubPanel';
 
 const SUGGESTIONS = [
   'Build a todo list with localStorage persistence',
@@ -21,6 +22,7 @@ export default function App() {
   const [streaming, setStreaming] = useState<Message | null>(null);
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [githubOpen, setGithubOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -251,10 +253,19 @@ export default function App() {
             <Terminal className="h-5 w-5 text-emerald-400" />
             <span className="font-semibold text-slate-100">Programming Agent</span>
           </div>
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-slate-500">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Ready
-          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setGithubOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-700 hover:border-slate-600 px-3 py-1.5 text-sm text-slate-300 transition-colors"
+            >
+              <Github className="h-4 w-4" />
+              <span className="hidden sm:inline">GitHub</span>
+            </button>
+            <span className="flex items-center gap-1.5 text-xs text-slate-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Ready
+            </span>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -311,6 +322,8 @@ export default function App() {
             </p>
           </div>
         </div>
+
+        {githubOpen && <GithubPanel onClose={() => setGithubOpen(false)} />}
       </main>
     </div>
   );
