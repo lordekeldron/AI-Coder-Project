@@ -4,10 +4,10 @@ import type { AgentStep, Message as MessageType } from '@/lib/supabase';
 import { CodeView } from './CodeView';
 
 const PHASE_META: Record<AgentStep['phase'], { label: string; icon: typeof Brain; color: string }> = {
-  understand: { label: 'Understand', icon: Search, color: 'text-sky-400' },
-  plan: { label: 'Plan', icon: ClipboardList, color: 'text-violet-400' },
-  implement: { label: 'Implement', icon: Code2, color: 'text-emerald-400' },
-  review: { label: 'Review', icon: Brain, color: 'text-amber-400' },
+  understand: { label: 'Entender', icon: Search, color: 'text-sky-400' },
+  plan: { label: 'Planejar', icon: ClipboardList, color: 'text-violet-400' },
+  implement: { label: 'Implementar', icon: Code2, color: 'text-emerald-400' },
+  review: { label: 'Revisar', icon: Brain, color: 'text-amber-400' },
 };
 
 type Props = {
@@ -46,7 +46,7 @@ export function MessageBubble({ message, streamingSteps, isStreaming }: Props) {
           {steps && steps.length > 0 && (
             <div className="rounded-2xl rounded-tl-sm border border-slate-700/60 bg-slate-900/60 px-4 py-3 space-y-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Reasoning
+                Raciocínio
               </p>
               {steps.map((step, i) => {
                 const meta = PHASE_META[step.phase];
