@@ -37,8 +37,39 @@ export function getAppForTask(task: string): GeneratedApp {
     return generateTimerApp();
   }
 
-  if (t.includes('jogo') || t.includes('velha') || t.includes('game') || t.includes('tic tac toe')) {
+  // Jogos específicos
+  if (t.includes('tetris')) {
+    return generateTetrisApp();
+  }
+
+  if (t.includes('cobrinha') || t.includes('snake')) {
+    return generateSnakeApp();
+  }
+
+  if (t.includes('memoria') || t.includes('memória') || t.includes('memory')) {
+    return generateMemoryGameApp();
+  }
+
+  if (
+    t.includes('jogo da velha') ||
+    t.includes('velha') ||
+    t.includes('tic tac toe') ||
+    t.includes('tictactoe')
+  ) {
     return generateTicTacToeApp();
+  }
+
+  // Pedido genérico de "jogo" sem especificar
+  if (
+    t === 'jogo' ||
+    t === 'game' ||
+    t === 'um jogo' ||
+    t === 'crie um jogo' ||
+    t === 'faca um jogo' ||
+    t === 'faça um jogo' ||
+    t === 'jogar'
+  ) {
+    return generateTetrisApp();
   }
 
   if (t.includes('moeda') || t.includes('câmbio') || t.includes('cambio') || t.includes('conversor') || t.includes('converter')) {
@@ -1256,6 +1287,886 @@ function generateTicTacToeApp(): GeneratedApp {
     explanation:
       'Criei um Jogo da Velha com detecção automática de vitória e empate, placar de partidas persistente e efeitos visuais!',
     code: [{ filename: 'tic-tac-toe.html', language: 'html', content: html }],
+  };
+}
+
+function generateTetrisApp(): GeneratedApp {
+  const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Tetris Arcade Clássico</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; touch-action: manipulation; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-3 select-none">
+  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-2xl flex flex-col items-center gap-4">
+    <!-- Header -->
+    <div class="w-full flex items-center justify-between border-b border-slate-800/80 pb-3">
+      <div class="flex items-center gap-2">
+        <span class="inline-block w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
+        <h1 class="text-lg font-extrabold tracking-wider bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-400 bg-clip-text text-transparent">
+          TETRIS RETRO
+        </h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btn-pause" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors">
+          Pausar
+        </button>
+        <button id="btn-restart" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-colors">
+          Reiniciar
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Game Area -->
+    <div class="w-full flex justify-center items-start gap-4">
+      <!-- Canvas Board -->
+      <div class="relative bg-slate-950 rounded-2xl border-2 border-slate-800 p-1 shadow-inner overflow-hidden">
+        <canvas id="tetris-canvas" width="220" height="440" class="block rounded-xl"></canvas>
+        
+        <!-- Pause Overlay -->
+        <div id="pause-overlay" class="absolute inset-0 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center gap-2 hidden">
+          <span class="text-xl font-bold text-slate-200">Jogo Pausado</span>
+          <span class="text-xs text-slate-400">Pressione P ou clique em Continuar</span>
+          <button id="btn-resume" class="mt-2 px-4 py-2 rounded-xl bg-emerald-400 text-slate-950 font-bold text-xs hover:bg-emerald-300">
+            Continuar
+          </button>
+        </div>
+
+        <!-- Game Over Overlay -->
+        <div id="gameover-overlay" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center gap-3 p-4 text-center hidden">
+          <div class="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-2xl text-rose-400">
+            💀
+          </div>
+          <h2 class="text-lg font-bold text-rose-400">Fim de Jogo!</h2>
+          <p class="text-xs text-slate-400">Sua pontuação final:</p>
+          <p id="final-score" class="text-2xl font-mono font-bold text-white">0</p>
+          <button id="btn-play-again" class="w-full mt-2 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-xs transition-colors">
+            Jogar Novamente
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats & Next Piece Panel -->
+      <div class="flex flex-col gap-3 w-28">
+        <!-- Next Piece Preview -->
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-2.5 flex flex-col items-center">
+          <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">Próxima</span>
+          <canvas id="next-canvas" width="80" height="80" class="rounded-lg"></canvas>
+        </div>
+
+        <!-- Score Stats -->
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-2.5 flex flex-col gap-2">
+          <div>
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Pontos</span>
+            <div id="score" class="text-base font-mono font-bold text-emerald-400">0</div>
+          </div>
+          <div>
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Recorde</span>
+            <div id="high-score" class="text-xs font-mono font-bold text-amber-400">0</div>
+          </div>
+          <div>
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Nível</span>
+            <div id="level" class="text-xs font-mono font-bold text-cyan-400">1</div>
+          </div>
+          <div>
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Linhas</span>
+            <div id="lines" class="text-xs font-mono font-bold text-purple-400">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- On-screen Touch Controls (para Mobile e Tablet) -->
+    <div class="w-full pt-1 flex flex-col items-center gap-2">
+      <div class="flex items-center justify-center gap-3 w-full">
+        <button id="ctrl-left" class="flex-1 py-3 bg-slate-800/80 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-2xl text-base font-bold flex items-center justify-center transition-transform active:scale-95" title="Esquerda">
+          ◀
+        </button>
+        <button id="ctrl-rotate" class="flex-1 py-3 bg-indigo-600/30 hover:bg-indigo-600/40 active:bg-indigo-600/60 border border-indigo-500/40 rounded-2xl text-base font-bold text-indigo-300 flex items-center justify-center transition-transform active:scale-95" title="Girar">
+          🔄 Girar
+        </button>
+        <button id="ctrl-right" class="flex-1 py-3 bg-slate-800/80 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-2xl text-base font-bold flex items-center justify-center transition-transform active:scale-95" title="Direita">
+          ▶
+        </button>
+      </div>
+      <div class="flex items-center justify-center gap-3 w-full">
+        <button id="ctrl-down" class="flex-1 py-2.5 bg-slate-800/80 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-2xl text-xs font-bold text-slate-200 flex items-center justify-center gap-1 transition-transform active:scale-95" title="Acelerar Queda">
+          ▼ Descer
+        </button>
+        <button id="ctrl-drop" class="flex-1 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 active:bg-emerald-500/40 border border-emerald-500/30 rounded-2xl text-xs font-bold text-emerald-300 flex items-center justify-center gap-1 transition-transform active:scale-95" title="Queda Rápida">
+          ⚡ Direto ao Fundo
+        </button>
+      </div>
+      <p class="text-[10px] text-slate-500 text-center">
+        Teclado: ← → mover • ↑ girar • ↓ descer rápido • Espaço queda direta • P pausar
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const COLS = 10;
+    const ROWS = 20;
+    const BLOCK = 22; // 220 / 10 = 22, 440 / 20 = 22
+
+    const canvas = document.getElementById('tetris-canvas');
+    const ctx = canvas.getContext('2d');
+    const nextCanvas = document.getElementById('next-canvas');
+    const nextCtx = nextCanvas.getContext('2d');
+
+    const scoreEl = document.getElementById('score');
+    const highScoreEl = document.getElementById('high-score');
+    const levelEl = document.getElementById('level');
+    const linesEl = document.getElementById('lines');
+    const finalScoreEl = document.getElementById('final-score');
+    const pauseOverlay = document.getElementById('pause-overlay');
+    const gameoverOverlay = document.getElementById('gameover-overlay');
+
+    const COLORS = [
+      null,
+      '#06b6d4', // I - Cyan
+      '#3b82f6', // J - Blue
+      '#f97316', // L - Orange
+      '#eab308', // O - Yellow
+      '#10b981', // S - Green
+      '#a855f7', // T - Purple
+      '#ef4444', // Z - Red
+    ];
+
+    const SHAPES = [
+      [],
+      [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
+      [[2,0,0],[2,2,2],[0,0,0]],                   // J
+      [[0,0,3],[3,3,3],[0,0,0]],                   // L
+      [[4,4],[4,4]],                               // O
+      [[0,5,5],[5,5,0],[0,0,0]],                   // S
+      [[0,6,0],[6,6,6],[0,0,0]],                   // T
+      [[7,7,0],[0,7,7],[0,0,0]],                   // Z
+    ];
+
+    let board = createMatrix(COLS, ROWS);
+    let piece = null;
+    let nextPiece = null;
+    let dropCounter = 0;
+    let lastTime = 0;
+    let score = 0;
+    let highScore = parseInt(localStorage.getItem('tetris_high_score') || '0', 10);
+    let level = 1;
+    let lines = 0;
+    let isPaused = false;
+    let isGameOver = false;
+    let animId = null;
+
+    highScoreEl.innerText = highScore;
+
+    function createMatrix(w, h) {
+      const m = [];
+      while (h--) m.push(new Array(w).fill(0));
+      return m;
+    }
+
+    function createPiece(type) {
+      return {
+        matrix: SHAPES[type].map(row => [...row]),
+        colorIdx: type,
+        x: Math.floor(COLS / 2) - Math.ceil(SHAPES[type][0].length / 2),
+        y: 0
+      };
+    }
+
+    function randomPiece() {
+      const type = Math.floor(Math.random() * 7) + 1;
+      return createPiece(type);
+    }
+
+    function collide(b, p) {
+      const m = p.matrix;
+      for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+          if (m[y][x] !== 0) {
+            const by = y + p.y;
+            const bx = x + p.x;
+            if (by >= ROWS || bx < 0 || bx >= COLS || (by >= 0 && b[by][bx] !== 0)) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function merge(b, p) {
+      p.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0 && y + p.y >= 0) {
+            b[y + p.y][x + p.x] = value;
+          }
+        });
+      });
+    }
+
+    function rotate(matrix) {
+      const result = matrix[0].map((_, i) => matrix.map(row => row[i]).reverse());
+      return result;
+    }
+
+    function playerRotate() {
+      if (isPaused || isGameOver) return;
+      const original = piece.matrix;
+      piece.matrix = rotate(piece.matrix);
+      let offset = 1;
+      while (collide(board, piece)) {
+        piece.x += offset;
+        offset = -(offset + (offset > 0 ? 1 : -1));
+        if (Math.abs(offset) > piece.matrix[0].length) {
+          piece.matrix = original;
+          return;
+        }
+      }
+    }
+
+    function playerMove(dir) {
+      if (isPaused || isGameOver) return;
+      piece.x += dir;
+      if (collide(board, piece)) {
+        piece.x -= dir;
+      }
+    }
+
+    function playerDrop() {
+      if (isPaused || isGameOver) return;
+      piece.y++;
+      if (collide(board, piece)) {
+        piece.y--;
+        lockPiece();
+      }
+      dropCounter = 0;
+    }
+
+    function playerHardDrop() {
+      if (isPaused || isGameOver) return;
+      while (!collide(board, piece)) {
+        piece.y++;
+      }
+      piece.y--;
+      lockPiece();
+      dropCounter = 0;
+    }
+
+    function lockPiece() {
+      merge(board, piece);
+      clearLines();
+      piece = nextPiece;
+      nextPiece = randomPiece();
+      drawNext();
+
+      if (collide(board, piece)) {
+        gameOver();
+      }
+    }
+
+    function clearLines() {
+      let cleared = 0;
+      outer: for (let y = board.length - 1; y >= 0; --y) {
+        for (let x = 0; x < board[y].length; ++x) {
+          if (board[y][x] === 0) continue outer;
+        }
+        const row = board.splice(y, 1)[0].fill(0);
+        board.unshift(row);
+        ++y;
+        cleared++;
+      }
+
+      if (cleared > 0) {
+        lines += cleared;
+        const lineScores = [0, 100, 300, 500, 800];
+        score += (lineScores[cleared] || (cleared * 200)) * level;
+        level = Math.floor(lines / 10) + 1;
+
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem('tetris_high_score', highScore.toString());
+          highScoreEl.innerText = highScore;
+        }
+
+        scoreEl.innerText = score;
+        levelEl.innerText = level;
+        linesEl.innerText = lines;
+      }
+    }
+
+    function getGhostY() {
+      if (!piece) return 0;
+      let ghostY = piece.y;
+      while (!collide(board, { ...piece, y: ghostY + 1 })) {
+        ghostY++;
+      }
+      return ghostY;
+    }
+
+    function drawBlock(c, x, y, color, isGhost = false) {
+      const px = x * BLOCK;
+      const py = y * BLOCK;
+      if (isGhost) {
+        c.strokeStyle = color;
+        c.lineWidth = 1.5;
+        c.strokeRect(px + 2, py + 2, BLOCK - 4, BLOCK - 4);
+        c.fillStyle = color + '22';
+        c.fillRect(px + 2, py + 2, BLOCK - 4, BLOCK - 4);
+      } else {
+        c.fillStyle = color;
+        c.fillRect(px + 1, py + 1, BLOCK - 2, BLOCK - 2);
+        // Bevel / highlight
+        c.fillStyle = '#ffffff33';
+        c.fillRect(px + 1, py + 1, BLOCK - 2, 3);
+        c.fillRect(px + 1, py + 1, 3, BLOCK - 2);
+        c.fillStyle = '#00000044';
+        c.fillRect(px + 1, py + BLOCK - 3, BLOCK - 2, 2);
+        c.fillRect(px + BLOCK - 3, py + 1, 2, BLOCK - 2);
+      }
+    }
+
+    function draw() {
+      // Clear board
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid lines
+      ctx.strokeStyle = '#1e293b44';
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x <= COLS; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * BLOCK, 0);
+        ctx.lineTo(x * BLOCK, ROWS * BLOCK);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= ROWS; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * BLOCK);
+        ctx.lineTo(COLS * BLOCK, y * BLOCK);
+        ctx.stroke();
+      }
+
+      // Board blocks
+      board.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0) {
+            drawBlock(ctx, x, y, COLORS[value]);
+          }
+        });
+      });
+
+      if (piece) {
+        // Ghost Piece
+        const ghostY = getGhostY();
+        if (ghostY !== piece.y) {
+          piece.matrix.forEach((row, y) => {
+            row.forEach((value, x) => {
+              if (value !== 0) {
+                drawBlock(ctx, x + piece.x, y + ghostY, COLORS[value], true);
+              }
+            });
+          });
+        }
+
+        // Active Piece
+        piece.matrix.forEach((row, y) => {
+          row.forEach((value, x) => {
+            if (value !== 0) {
+              drawBlock(ctx, x + piece.x, y + piece.y, COLORS[value]);
+            }
+          });
+        });
+      }
+    }
+
+    function drawNext() {
+      nextCtx.fillStyle = '#020617';
+      nextCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
+      if (!nextPiece) return;
+
+      const m = nextPiece.matrix;
+      const blockSize = 16;
+      const offsetX = Math.floor((nextCanvas.width - m[0].length * blockSize) / 2);
+      const offsetY = Math.floor((nextCanvas.height - m.length * blockSize) / 2);
+
+      m.forEach((row, y) => {
+        row.forEach((val, x) => {
+          if (val !== 0) {
+            const px = offsetX + x * blockSize;
+            const py = offsetY + y * blockSize;
+            nextCtx.fillStyle = COLORS[val];
+            nextCtx.fillRect(px + 1, py + 1, blockSize - 2, blockSize - 2);
+            nextCtx.fillStyle = '#ffffff44';
+            nextCtx.fillRect(px + 1, py + 1, blockSize - 2, 2);
+          }
+        });
+      });
+    }
+
+    function update(time = 0) {
+      if (!isPaused && !isGameOver) {
+        const deltaTime = time - lastTime;
+        lastTime = time;
+        dropCounter += deltaTime;
+        const dropInterval = Math.max(90, 800 - (level - 1) * 70);
+        if (dropCounter > dropInterval) {
+          playerDrop();
+        }
+        draw();
+      }
+      animId = requestAnimationFrame(update);
+    }
+
+    function gameOver() {
+      isGameOver = true;
+      finalScoreEl.innerText = score;
+      gameoverOverlay.classList.remove('hidden');
+    }
+
+    function resetGame() {
+      board = createMatrix(COLS, ROWS);
+      score = 0;
+      lines = 0;
+      level = 1;
+      isPaused = false;
+      isGameOver = false;
+      dropCounter = 0;
+      lastTime = 0;
+
+      scoreEl.innerText = '0';
+      levelEl.innerText = '1';
+      linesEl.innerText = '0';
+      pauseOverlay.classList.add('hidden');
+      gameoverOverlay.classList.add('hidden');
+      document.getElementById('btn-pause').innerText = 'Pausar';
+
+      piece = randomPiece();
+      nextPiece = randomPiece();
+      drawNext();
+    }
+
+    function togglePause() {
+      if (isGameOver) return;
+      isPaused = !isPaused;
+      if (isPaused) {
+        pauseOverlay.classList.remove('hidden');
+        document.getElementById('btn-pause').innerText = 'Continuar';
+      } else {
+        pauseOverlay.classList.add('hidden');
+        document.getElementById('btn-pause').innerText = 'Pausar';
+        lastTime = performance.now();
+      }
+    }
+
+    // Controls
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+      if (e.key === 'ArrowLeft') playerMove(-1);
+      else if (e.key === 'ArrowRight') playerMove(1);
+      else if (e.key === 'ArrowDown') playerDrop();
+      else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') playerRotate();
+      else if (e.key === ' ') playerHardDrop();
+      else if (e.key === 'p' || e.key === 'P') togglePause();
+    });
+
+    document.getElementById('ctrl-left').onclick = () => playerMove(-1);
+    document.getElementById('ctrl-right').onclick = () => playerMove(1);
+    document.getElementById('ctrl-rotate').onclick = () => playerRotate();
+    document.getElementById('ctrl-down').onclick = () => playerDrop();
+    document.getElementById('ctrl-drop').onclick = () => playerHardDrop();
+
+    document.getElementById('btn-pause').onclick = togglePause;
+    document.getElementById('btn-resume').onclick = togglePause;
+    document.getElementById('btn-restart').onclick = resetGame;
+    document.getElementById('btn-play-again').onclick = resetGame;
+
+    // Start
+    resetGame();
+    animId = requestAnimationFrame(update);
+  </script>
+</body>
+</html>`;
+
+  return {
+    title: 'Jogo Tetris Arcade',
+    explanation:
+      'Construí um jogo de Tetris arcade completo com matriz 10x20, as 7 peças clássicas (Tetrominoes) com cores neon vibrantes, previsão da próxima peça, projeção fantasma (ghost piece), acelerador de níveis, pontuação com recorde em localStorage, além de suporte total a teclado e botões táteis virtuais para celulares e tablets!',
+    code: [{ filename: 'tetris.html', language: 'html', content: html }],
+  };
+}
+
+function generateSnakeApp(): GeneratedApp {
+  const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Jogo da Cobrinha (Snake)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; touch-action: manipulation; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-3 select-none">
+  <div class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col items-center gap-4">
+    <!-- Header -->
+    <div class="w-full flex items-center justify-between border-b border-slate-800/80 pb-3">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">🐍</span>
+        <h1 class="text-base font-extrabold tracking-wide text-emerald-400">
+          SNAKE RETRO
+        </h1>
+      </div>
+      <button id="btn-restart" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-colors">
+        Reiniciar
+      </button>
+    </div>
+
+    <!-- Stats -->
+    <div class="w-full grid grid-cols-2 gap-3">
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+        <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Pontuação</span>
+        <div id="score" class="text-lg font-mono font-bold text-emerald-400">0</div>
+      </div>
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+        <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Recorde</span>
+        <div id="high-score" class="text-lg font-mono font-bold text-amber-400">0</div>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="relative bg-slate-950 rounded-2xl border-2 border-slate-800 p-1 shadow-inner overflow-hidden">
+      <canvas id="snake-canvas" width="280" height="280" class="block rounded-xl"></canvas>
+      
+      <!-- Overlay Game Over -->
+      <div id="gameover-overlay" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center gap-2 p-4 text-center hidden">
+        <div class="text-3xl">💥</div>
+        <h2 class="text-base font-bold text-rose-400">Fim de Jogo!</h2>
+        <p class="text-xs text-slate-400">Pontuação: <span id="final-score" class="font-bold text-white">0</span></p>
+        <button id="btn-play-again" class="mt-2 px-5 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-xs transition-colors">
+          Jogar Novamente
+        </button>
+      </div>
+    </div>
+
+    <!-- D-Pad Controls (Mobile/Touch) -->
+    <div class="flex flex-col items-center gap-1.5 pt-1">
+      <button id="ctrl-up" class="w-12 h-11 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-xl font-bold flex items-center justify-center transition-transform active:scale-90">▲</button>
+      <div class="flex items-center gap-3">
+        <button id="ctrl-left" class="w-12 h-11 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-xl font-bold flex items-center justify-center transition-transform active:scale-90">◀</button>
+        <div class="w-8 h-8 rounded-full bg-emerald-400/10 border border-emerald-400/20 flex items-center justify-center text-[10px] text-emerald-400 font-mono">OK</div>
+        <button id="ctrl-right" class="w-12 h-11 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-xl font-bold flex items-center justify-center transition-transform active:scale-90">▶</button>
+      </div>
+      <button id="ctrl-down" class="w-12 h-11 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-xl font-bold flex items-center justify-center transition-transform active:scale-90">▼</button>
+      <p class="text-[10px] text-slate-500 text-center mt-1">Use as setas do teclado ou os botões acima</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('snake-canvas');
+    const ctx = canvas.getContext('2d');
+    const GRID = 14;
+    const COUNT = 20; // 280 / 14 = 20
+
+    let snake = [{ x: 10, y: 10 }, { x: 10, y: 11 }, { x: 10, y: 12 }];
+    let dir = { x: 0, y: -1 };
+    let nextDir = { x: 0, y: -1 };
+    let food = { x: 5, y: 5 };
+    let score = 0;
+    let highScore = parseInt(localStorage.getItem('snake_high_score') || '0', 10);
+    let isGameOver = false;
+    let gameInterval = null;
+
+    document.getElementById('high-score').innerText = highScore;
+
+    function spawnFood() {
+      while (true) {
+        const x = Math.floor(Math.random() * COUNT);
+        const y = Math.floor(Math.random() * COUNT);
+        const inSnake = snake.some(s => s.x === x && s.y === y);
+        if (!inSnake) {
+          food = { x, y };
+          break;
+        }
+      }
+    }
+
+    function resetGame() {
+      snake = [{ x: 10, y: 10 }, { x: 10, y: 11 }, { x: 10, y: 12 }];
+      dir = { x: 0, y: -1 };
+      nextDir = { x: 0, y: -1 };
+      score = 0;
+      isGameOver = false;
+      document.getElementById('score').innerText = '0';
+      document.getElementById('gameover-overlay').classList.add('hidden');
+      spawnFood();
+      clearInterval(gameInterval);
+      gameInterval = setInterval(gameStep, 110);
+    }
+
+    function gameStep() {
+      if (isGameOver) return;
+      dir = nextDir;
+      const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+      // Wall collision
+      if (head.x < 0 || head.x >= COUNT || head.y < 0 || head.y >= COUNT) {
+        return gameOver();
+      }
+
+      // Self collision
+      if (snake.some(s => s.x === head.x && s.y === head.y)) {
+        return gameOver();
+      }
+
+      snake.unshift(head);
+
+      if (head.x === food.x && head.y === food.y) {
+        score += 10;
+        document.getElementById('score').innerText = score;
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem('snake_high_score', highScore.toString());
+          document.getElementById('high-score').innerText = highScore;
+        }
+        spawnFood();
+      } else {
+        snake.pop();
+      }
+
+      draw();
+    }
+
+    function gameOver() {
+      isGameOver = true;
+      clearInterval(gameInterval);
+      document.getElementById('final-score').innerText = score;
+      document.getElementById('gameover-overlay').classList.remove('hidden');
+    }
+
+    function draw() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid
+      ctx.strokeStyle = '#1e293b33';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= COUNT; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * GRID, 0);
+        ctx.lineTo(i * GRID, COUNT * GRID);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i * GRID);
+        ctx.lineTo(COUNT * GRID, i * GRID);
+        ctx.stroke();
+      }
+
+      // Food (maçã brilhante)
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(food.x * GRID + GRID/2, food.y * GRID + GRID/2, GRID/2 - 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Snake
+      snake.forEach((part, i) => {
+        ctx.fillStyle = i === 0 ? '#10b981' : '#059669';
+        ctx.fillRect(part.x * GRID + 1, part.y * GRID + 1, GRID - 2, GRID - 2);
+        if (i === 0) {
+          ctx.fillStyle = '#34d399';
+          ctx.fillRect(part.x * GRID + 2, part.y * GRID + 2, GRID - 4, 2);
+        }
+      });
+    }
+
+    function setDirection(x, y) {
+      if ((x === -dir.x && x !== 0) || (y === -dir.y && y !== 0)) return;
+      nextDir = { x, y };
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+      if (e.key === 'ArrowUp' || e.key === 'w') setDirection(0, -1);
+      else if (e.key === 'ArrowDown' || e.key === 's') setDirection(0, 1);
+      else if (e.key === 'ArrowLeft' || e.key === 'a') setDirection(-1, 0);
+      else if (e.key === 'ArrowRight' || e.key === 'd') setDirection(1, 0);
+    });
+
+    document.getElementById('ctrl-up').onclick = () => setDirection(0, -1);
+    document.getElementById('ctrl-down').onclick = () => setDirection(0, 1);
+    document.getElementById('ctrl-left').onclick = () => setDirection(-1, 0);
+    document.getElementById('ctrl-right').onclick = () => setDirection(1, 0);
+    document.getElementById('btn-restart').onclick = resetGame;
+    document.getElementById('btn-play-again').onclick = resetGame;
+
+    resetGame();
+  </script>
+</body>
+</html>`;
+
+  return {
+    title: 'Jogo da Cobrinha (Snake)',
+    explanation:
+      'Desenvolvi o clássico Jogo da Cobrinha (Snake) com canvas de alta definição, detecção de colisões, placar e recorde persistente, controles responsivos por teclado e D-Pad virtual!',
+    code: [{ filename: 'snake.html', language: 'html', content: html }],
+  };
+}
+
+function generateMemoryGameApp(): GeneratedApp {
+  const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jogo da Memória</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style> body { font-family: 'Plus Jakarta Sans', sans-serif; } </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 flex items-center justify-center">
+  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
+    <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">🧠</span>
+        <h1 class="text-base font-extrabold text-cyan-400">JOGO DA MEMÓRIA</h1>
+      </div>
+      <button id="btn-restart" class="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 text-xs font-semibold transition-colors">
+        Reiniciar
+      </button>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 text-center">
+      <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
+        <span class="text-[10px] text-slate-400 uppercase font-bold">Tentativas</span>
+        <div id="moves" class="text-base font-mono font-bold text-cyan-400">0</div>
+      </div>
+      <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
+        <span class="text-[10px] text-slate-400 uppercase font-bold">Pares</span>
+        <div id="pairs" class="text-base font-mono font-bold text-emerald-400">0/8</div>
+      </div>
+      <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
+        <span class="text-[10px] text-slate-400 uppercase font-bold">Tempo</span>
+        <div id="timer" class="text-base font-mono font-bold text-amber-400">00:00</div>
+      </div>
+    </div>
+
+    <!-- Grid 4x4 de cartas -->
+    <div id="grid" class="grid grid-cols-4 gap-2.5 aspect-square"></div>
+
+    <div id="win-banner" class="hidden p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-center space-y-1">
+      <p class="text-sm font-bold text-emerald-400">🎉 Parabéns! Você completou o jogo!</p>
+      <p class="text-xs text-slate-300">Tempo total: <span id="win-time"></span> | Tentativas: <span id="win-moves"></span></p>
+    </div>
+  </div>
+
+  <script>
+    const ICONS = ['🚀', '⚡', '🔥', '💎', '🎨', '🕹️', '🤖', '⭐'];
+    let cards = [];
+    let flipped = [];
+    let matched = 0;
+    let moves = 0;
+    let seconds = 0;
+    let timerId = null;
+
+    const grid = document.getElementById('grid');
+    const movesEl = document.getElementById('moves');
+    const pairsEl = document.getElementById('pairs');
+    const timerEl = document.getElementById('timer');
+    const winBanner = document.getElementById('win-banner');
+
+    function init() {
+      clearInterval(timerId);
+      seconds = 0;
+      moves = 0;
+      matched = 0;
+      flipped = [];
+      movesEl.innerText = '0';
+      pairsEl.innerText = '0/8';
+      timerEl.innerText = '00:00';
+      winBanner.classList.add('hidden');
+
+      const deck = [...ICONS, ...ICONS].sort(() => Math.random() - 0.5);
+      grid.innerHTML = '';
+      cards = deck.map((icon, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'w-full h-full rounded-2xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-2xl flex items-center justify-center transition-all duration-300 transform select-none';
+        btn.dataset.icon = icon;
+        btn.dataset.idx = idx;
+        btn.innerText = '❓';
+        btn.onclick = () => onCardClick(btn, icon, idx);
+        grid.appendChild(btn);
+        return btn;
+      });
+
+      timerId = setInterval(() => {
+        seconds++;
+        const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+        const s = String(seconds % 60).padStart(2, '0');
+        timerEl.innerText = m + ':' + s;
+      }, 1000);
+    }
+
+    function onCardClick(btn, icon, idx) {
+      if (btn.disabled || flipped.length >= 2 || flipped.some(f => f.idx === idx)) return;
+
+      btn.innerText = icon;
+      btn.className = 'w-full h-full rounded-2xl bg-cyan-600/30 border border-cyan-400 text-2xl flex items-center justify-center transition-all select-none scale-105';
+      flipped.push({ btn, icon, idx });
+
+      if (flipped.length === 2) {
+        moves++;
+        movesEl.innerText = moves;
+        const [first, second] = flipped;
+
+        if (first.icon === second.icon) {
+          matched++;
+          pairsEl.innerText = matched + '/8';
+          first.btn.disabled = true;
+          second.btn.disabled = true;
+          first.btn.className = 'w-full h-full rounded-2xl bg-emerald-600/30 border border-emerald-400 text-2xl flex items-center justify-center select-none';
+          second.btn.className = 'w-full h-full rounded-2xl bg-emerald-600/30 border border-emerald-400 text-2xl flex items-center justify-center select-none';
+          flipped = [];
+
+          if (matched === 8) {
+            clearInterval(timerId);
+            document.getElementById('win-time').innerText = timerEl.innerText;
+            document.getElementById('win-moves').innerText = moves;
+            winBanner.classList.remove('hidden');
+          }
+        } else {
+          setTimeout(() => {
+            first.btn.innerText = '❓';
+            second.btn.innerText = '❓';
+            first.btn.className = 'w-full h-full rounded-2xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-2xl flex items-center justify-center transition-all select-none';
+            second.btn.className = 'w-full h-full rounded-2xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-2xl flex items-center justify-center transition-all select-none';
+            flipped = [];
+          }, 700);
+        }
+      }
+    }
+
+    document.getElementById('btn-restart').onclick = init;
+    init();
+  </script>
+</body>
+</html>`;
+
+  return {
+    title: 'Jogo da Memória',
+    explanation:
+      'Criei um Jogo da Memória com 16 cartas, cronômetro em tempo real, contador de jogadas, detecção de pares e efeitos visuais!',
+    code: [{ filename: 'memory.html', language: 'html', content: html }],
   };
 }
 

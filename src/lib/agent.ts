@@ -72,45 +72,77 @@ function normalizeText(text: string): string {
     .trim();
 }
 
-function isGreeting(task: string): boolean {
+const PURE_GREETINGS = [
+  'ola',
+  'oi',
+  'oie',
+  'opa',
+  'e ai',
+  'eae',
+  'salve',
+  'bom dia',
+  'boa tarde',
+  'boa noite',
+  'hello',
+  'hi',
+  'hey',
+  'tudo bem',
+  'como vai',
+  'beleza',
+  'fala',
+  'fala ai',
+  'ola tudo bem',
+  'oi tudo bem',
+  'ola como vai',
+  'oi como vai',
+  'bom dia tudo bem',
+  'boa tarde tudo bem',
+  'boa noite tudo bem',
+];
+
+/** Remove saudações do início para isolar a tarefa real */
+export function stripGreetings(text: string): string {
+  let cleaned = text.trim();
+  const greetingPrefixRegex =
+    /^(ol[aá]|oi|oie|opa|e a[ií]|eae|salve|bom dia|boa tarde|boa noite|hello|hi|hey|fala|fala a[ií])([,!.?\s]+(tudo bem|como vai|beleza)?[,!.?\s]*)*/i;
+  cleaned = cleaned.replace(greetingPrefixRegex, '').trim();
+  return cleaned;
+}
+
+export function isPureGreeting(task: string): boolean {
   const clean = normalizeText(task);
   if (!clean) return false;
 
-  const GREETING_STARTS = [
-    'ola',
-    'oi',
-    'oie',
-    'opa',
-    'e ai',
-    'eae',
-    'salve',
-    'bom dia',
-    'boa tarde',
-    'boa noite',
-    'hello',
-    'hi',
-    'hey',
-    'tudo bem',
-    'como vai',
-    'beleza',
-    'fala',
-    'fala ai',
-  ];
+  // 1. É exatamente uma saudação isolada?
+  if (PURE_GREETINGS.includes(clean)) return true;
 
-  return GREETING_STARTS.some(
-    (g) => clean === g || clean.startsWith(g + ' ') || clean.endsWith(' ' + g)
-  );
+  // 2. Se remover saudações e gentilezas, sobra alguma tarefa com substância?
+  const remaining = stripGreetings(task);
+  const remainingNorm = normalizeText(remaining);
+
+  if (!remainingNorm || PURE_GREETINGS.includes(remainingNorm)) {
+    return true;
+  }
+
+  // Sobrou conteúdo real (ex: "faça uma calculadora") -> NÃO é pura saudação
+  return false;
+}
+
+export function hasGreetingPrefix(task: string): boolean {
+  const greetingPrefixRegex =
+    /^(ol[aá]|oi|oie|opa|e a[ií]|eae|salve|bom dia|boa tarde|boa noite|hello|hi|hey)\b/i;
+  return greetingPrefixRegex.test(task.trim());
 }
 
 function isHelpOrQuestion(task: string): boolean {
   const clean = normalizeText(task);
   return (
+    clean === 'ajuda' ||
+    clean === 'me ajuda' ||
     clean.includes('quem e voce') ||
     clean.includes('o que voce faz') ||
     clean.includes('como funciona') ||
     clean.includes('como usar') ||
-    clean.includes('me ajuda') ||
-    clean === 'ajuda' ||
     clean.includes('qual o seu nome') ||
     clean.includes('para que serve')
   );
@@ -119,8 +151,8 @@ function isHelpOrQuestion(task: string): boolean {
 export async function runAgent(task: string): Promise<AgentResponse> {
   await delay(450);
 
-  // Tratamento de saudações
-  if (isGreeting(task)) {
+  // 1. Saudação PURA (sem pedido de código)
+  if (isPureGreeting(task)) {
     return {
       steps: [
         {
@@ -130,12 +162,12 @@ export async function runAgent(task: string): Promise<AgentResponse> {
         },
       ],
       content:
-        'Olá! 👋 Tudo bem? Sou o seu Agente de Programação.\n\nPosso te ajudar a criar, explicar ou corrigir código em várias linguagens e frameworks (TypeScript, React, Python, Node.js, etc.).\n\nAgora todas as aplicações e websites que eu crio podem ser **executados, navegados e testados ao vivo** aqui dentro!\n\nO que você gostaria de construir hoje? Por exemplo:\n• *"Crie uma lista de tarefas com persistência no localStorage"*\n• *"Crie uma calculadora moderna"*\n• *"Crie um formulário com validação em tempo real"*\n• *"Crie um jogo da velha interativo"*',
+        'Olá! 👋 Tudo bem? Sou o seu Agente de Programação.\n\nPosso te ajudar a criar, explicar ou corrigir código em várias linguagens e frameworks (TypeScript, React, Python, Node.js, etc.).\n\nTodas as aplicações e websites que eu crio podem ser **executados, navegados e testados ao vivo** aqui dentro!\n\nO que você gostaria de construir hoje? Por exemplo:\n• *"Crie um jogo de Tetris arcade"*\n• *"Crie uma lista de tarefas com persistência no localStorage"*\n• *"Crie uma calculadora moderna"*\n• *"Crie um formulário com validação em tempo real"*\n• *"Crie um jogo da velha interativo"*',
       code: [],
     };
   }
 
-  // Tratamento de dúvidas sobre o que o agente faz
+  // 2. Dúvida sobre funcionamento
   if (isHelpOrQuestion(task)) {
     return {
       steps: [
@@ -151,18 +183,28 @@ export async function runAgent(task: string): Promise<AgentResponse> {
     };
   }
 
+  // 3. Execução de Tarefa / Construção de App (mesmo que tenha começado com "Olá, faça...")
+  // Isola a tarefa removendo saudações introdutórias
+  const effectiveTask = stripGreetings(task) || task;
+
   const phases: AgentStep['phase'][] = ['understand', 'plan', 'implement', 'review'];
   const steps: AgentStep[] = phases.map((phase) => ({
     phase,
-    ...PHASE_TEMPLATES[phase](task),
+    ...PHASE_TEMPLATES[phase](effectiveTask),
   }));
 
-  // Gera o aplicativo completo e testável correspondente à tarefa solicitada
-  const generatedApp = getAppForTask(task);
+  // Gera a aplicação completa e testável correspondente à tarefa solicitada
+  const generatedApp = getAppForTask(effectiveTask);
+
+  // Se o usuário iniciou com uma saudação educada, cumprimenta de volta de forma natural
+  let finalExplanation = generatedApp.explanation;
+  if (hasGreetingPrefix(task)) {
+    finalExplanation = `Olá! 👋 Com certeza! ${generatedApp.explanation}`;
+  }
 
   return {
     steps,
-    content: generatedApp.explanation,
+    content: finalExplanation,
     code: generatedApp.code,
   };
 }
