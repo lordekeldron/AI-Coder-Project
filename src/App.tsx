@@ -7,6 +7,7 @@ import { MessageList } from '@/components/Message';
 import { GithubPanel } from '@/components/GithubPanel';
 import { UpdatesModal } from '@/components/UpdatesModal';
 import { checkForUpdates } from '@/lib/updater';
+import { generateConversationTitle } from '@/lib/titleGenerator';
 
 const SUGGESTIONS = [
   'Crie uma lista de tarefas com persistência no localStorage',
@@ -100,7 +101,7 @@ export default function App() {
 
       if (error || !data) {
         const fallbackConv: Conversation = {
-          id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()),
+          id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
           title,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -119,7 +120,7 @@ export default function App() {
     } catch (err) {
       console.warn('Using local fallback for new conversation:', err);
       const fallbackConv: Conversation = {
-        id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()),
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
         title,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -128,6 +129,22 @@ export default function App() {
       setActiveId(fallbackConv.id);
       setSidebarOpen(false);
       return fallbackConv.id;
+    }
+  }
+
+  async function renameConversation(id: string, newTitle: string) {
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title: trimmed, updated_at: new Date().toISOString() } : c))
+    );
+    try {
+      await supabase
+        .from('conversations')
+        .update({ title: trimmed, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    } catch (err) {
+      console.warn('Erro ao renomear conversa:', err);
     }
   }
 
@@ -171,6 +188,7 @@ export default function App() {
       created_at: new Date().toISOString(),
     };
 
+    // 1. Salva mensagem do usuário
     try {
       const { data: userMsgRow } = await supabase
         .from('messages')
@@ -187,18 +205,32 @@ export default function App() {
       setMessages((prev) => [...prev, fallbackUserMsg]);
     }
 
-    if (messages.length === 0) {
-      const title = trimmed.length > 42 ? trimmed.slice(0, 42).trimEnd() + '…' : trimmed;
+    // 2. Criação Inteligente do Título Contextual baseado no assunto
+    const currentConv = conversations.find((c) => c.id === convId);
+    const isGenericTitle =
+      !currentConv ||
+      currentConv.title.startsWith('Nova conversa') ||
+      currentConv.title.startsWith('Conversa') ||
+      currentConv.title.trim() === '';
+
+    if (messages.length === 0 || isGenericTitle) {
+      const contextualTitle = generateConversationTitle(trimmed);
       setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, title, updated_at: new Date().toISOString() } : c))
+        prev.map((c) =>
+          c.id === convId ? { ...c, title: contextualTitle, updated_at: new Date().toISOString() } : c
+        )
       );
       try {
-        supabase.from('conversations').update({ title, updated_at: new Date().toISOString() }).eq('id', convId);
+        supabase
+          .from('conversations')
+          .update({ title: contextualTitle, updated_at: new Date().toISOString() })
+          .eq('id', convId);
       } catch {
         // ignore
       }
     }
 
+    // 3. Execução do raciocínio e geração pelo agente
     const result: AgentResponse = await runAgent(trimmed);
 
     const placeholderId = 'streaming';
@@ -225,6 +257,7 @@ export default function App() {
 
     await delay(400);
 
+    // 4. Salva a resposta do agente
     const fallbackAgentMsg: Message = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
       conversation_id: convId,
@@ -258,11 +291,30 @@ export default function App() {
     }
     setStreaming(null);
 
-    try {
-      supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
-    } catch {
-      // ignore
+    // 5. Refina o título se um aplicativo específico tiver sido gerado
+    if (result.code && result.code.length > 0 && result.code[0]?.filename) {
+      const refinedTitle = generateConversationTitle(trimmed, result.code[0].filename);
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === convId ? { ...c, title: refinedTitle, updated_at: new Date().toISOString() } : c
+        )
+      );
+      try {
+        supabase
+          .from('conversations')
+          .update({ title: refinedTitle, updated_at: new Date().toISOString() })
+          .eq('id', convId);
+      } catch {
+        // ignore
+      }
+    } else {
+      try {
+        supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+      } catch {
+        // ignore
+      }
     }
+
     setConversations((prev) =>
       [...prev]
         .map((c) => (c.id === convId ? { ...c, updated_at: new Date().toISOString() } : c))
@@ -294,6 +346,7 @@ export default function App() {
           }}
           onNew={newConversation}
           onDelete={deleteConversation}
+          onRename={renameConversation}
           loading={loadingConvs}
           onOpenUpdates={() => setUpdatesOpen(true)}
           hasUpdate={hasUpdate}
@@ -313,6 +366,7 @@ export default function App() {
               }}
               onNew={newConversation}
               onDelete={deleteConversation}
+              onRename={renameConversation}
               loading={loadingConvs}
               onClose={() => setSidebarOpen(false)}
               onOpenUpdates={() => {
@@ -379,7 +433,7 @@ export default function App() {
               <h1 className="text-2xl font-semibold text-slate-100 mb-2">O que devo construir?</h1>
               <p className="text-slate-400 text-center max-w-md mb-8 leading-relaxed">
                 Descreva uma tarefa de programação e o agente vai raciocinar passo a passo —
-                entender, planejar, implementar e revisar — e devolver código funcional.
+                entender, planejar, implementar e revisar — e devolver código funcional com preview ao vivo.
               </p>
               <div className="grid gap-2 sm:grid-cols-2 w-full max-w-2xl">
                 {SUGGESTIONS.map((s) => (

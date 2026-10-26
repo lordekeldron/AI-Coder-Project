@@ -1,4 +1,5 @@
-import { Download, MessageSquarePlus, Trash2, X } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Download, MessageSquarePlus, Pencil, Trash2, X } from 'lucide-react';
 import type { Conversation } from '@/lib/supabase';
 
 type Props = {
@@ -7,6 +8,7 @@ type Props = {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  onRename?: (id: string, newTitle: string) => void;
   loading: boolean;
   onClose?: () => void;
   onOpenUpdates?: () => void;
@@ -19,11 +21,28 @@ export function Sidebar({
   onSelect,
   onNew,
   onDelete,
+  onRename,
   loading,
   onClose,
   onOpenUpdates,
   hasUpdate,
 }: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+
+  function startEditing(c: Conversation, e: React.MouseEvent) {
+    e.stopPropagation();
+    setEditingId(c.id);
+    setEditTitle(c.title);
+  }
+
+  function commitEdit(id: string) {
+    if (editTitle.trim() && onRename) {
+      onRename(id, editTitle.trim());
+    }
+    setEditingId(null);
+  }
+
   return (
     <div className="flex h-full flex-col bg-slate-950 border-r border-slate-800">
       <div className="flex items-center justify-between px-4 h-14 border-b border-slate-800">
@@ -65,30 +84,78 @@ export function Sidebar({
           <p className="px-3 py-6 text-center text-sm text-slate-500">Nenhuma conversa ainda.</p>
         ) : (
           <ul className="space-y-1">
-            {conversations.map((c) => (
-              <li key={c.id}>
-                <div
-                  className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors cursor-pointer ${
-                    activeId === c.id
-                      ? 'bg-slate-800 text-slate-100'
-                      : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                  }`}
-                  onClick={() => onSelect(c.id)}
-                >
-                  <span className="flex-1 truncate">{c.title}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(c.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 transition-all"
-                    aria-label="Excluir conversa"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </li>
-            ))}
+            {conversations.map((c) => {
+              const isEditing = editingId === c.id;
+
+              return (
+                <li key={c.id}>
+                  {isEditing ? (
+                    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-900 border border-emerald-500/50">
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitEdit(c.id);
+                          if (e.key === 'Escape') setEditingId(null);
+                        }}
+                        autoFocus
+                        className="flex-1 bg-transparent text-xs text-slate-100 outline-none px-1"
+                      />
+                      <button
+                        onClick={() => commitEdit(c.id)}
+                        className="text-emerald-400 hover:text-emerald-300 p-1"
+                        title="Salvar título"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="text-slate-500 hover:text-slate-300 p-1"
+                        title="Cancelar"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors cursor-pointer ${
+                        activeId === c.id
+                          ? 'bg-slate-800 text-slate-100'
+                          : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                      }`}
+                      onClick={() => onSelect(c.id)}
+                    >
+                      <span className="flex-1 truncate text-xs sm:text-sm">{c.title}</span>
+
+                      {/* Botões de Ação na Linha */}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {onRename && (
+                          <button
+                            onClick={(e) => startEditing(c, e)}
+                            className="p-1 text-slate-500 hover:text-slate-200 transition-colors"
+                            title="Renomear conversa"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(c.id);
+                          }}
+                          className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                          title="Excluir conversa"
+                          aria-label="Excluir conversa"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
