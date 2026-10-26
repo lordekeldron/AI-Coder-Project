@@ -1,0 +1,6 @@
+{
+  "name": "AI Programming Agent",
+  "description": "An AI-powered programming agent that reasons step by step to design, plan, implement, and review code.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -19,10 +19,13 @@ const PHASE_TEMPLATES: Record<AgentStep['phase'], (task: string) => { title: str
     title: 'Writing the code',
     detail: `Producing clean, typed, production-ready code for "${truncate(task, 60)}". Following existing conventions, reusing utilities before adding new ones, and keeping each module cohesive.`,
   }),
-  review: (task) => ({
-    title: 'Verifying the result',
-    detail: `Re-reading the implementation against the original goal. Checking error handling at boundaries, type safety, and that every step the user would need is actually wired up. No dead ends.`,
-  }),
+  review: (task) => {
+    void task;
+    return {
+      title: 'Verifying the result',
+      detail: `Re-reading the implementation against the original goal. Checking error handling at boundaries, type safety, and that every step the user would need is actually wired up. No dead ends.`,
+    };
+  },
 };
 
 function pickPlan(task: string): string {

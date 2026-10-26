@@ -102,7 +102,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(safeBody, { status, headers: resHeaders });
-  } catch (err) {
+  } catch {
     return json({ error: 'Unexpected server error' }, 500);
   }
 });

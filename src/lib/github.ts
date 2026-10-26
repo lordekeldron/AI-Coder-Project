@@ -1,6 +1,8 @@
 import { supabase } from './supabase';
 
-const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-proxy`;
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+const GITHUB_API = 'https://api.github.com';
 
 export type GithubRepo = {
   id: number;
@@ -49,27 +51,55 @@ export type Connection = {
   created_at: string;
 };
 
-async function proxy<T>(
-  path: string,
-  opts: { method?: string; query?: Record<string, string>; body?: unknown } = {}
-): Promise<T> {
-  const res = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-    },
-    body: JSON.stringify({ path, ...opts }),
-  });
+async function getStoredToken(): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('github_connections')
+      .select('token')
+      .limit(1)
+      .maybeSingle();
+    return (data as { token?: string } | null)?.token ?? null;
+  } catch {
+    return null;
+  }
+}
 
+async function directGithubFetch<T>(
+  path: string,
+  opts: { method?: string; query?: Record<string, string>; body?: unknown } = {},
+  explicitToken?: string
+): Promise<T> {
+  const token = explicitToken ?? (await getStoredToken());
+  if (!token) {
+    throw new Error('GitHub account is not connected');
+  }
+
+  const qs = opts.query ? '?' + new URLSearchParams(opts.query).toString() : '';
+  const url = `${GITHUB_API}${path}${qs}`;
+  const method = (opts.method ?? 'GET').toUpperCase();
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+
+  const init: RequestInit = { method, headers };
+  if (opts.body !== undefined && method !== 'GET' && method !== 'DELETE') {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(opts.body);
+  }
+
+  const res = await fetch(url, init);
   if (!res.ok) {
     let message = `GitHub request failed (${res.status})`;
     try {
       const err = await res.json();
-      if (err && typeof err.error === 'string') message = err.error;
-      else if (err && typeof err.message === 'string') message = err.message;
+      if (err && typeof err.message === 'string') {
+        message = err.message;
+      }
     } catch {
-      // non-JSON error body
+      // non-json response
     }
     throw new Error(message);
   }
@@ -77,6 +107,38 @@ async function proxy<T>(
   const text = await res.text();
   if (!text) return null as T;
   return JSON.parse(text) as T;
+}
+
+async function proxy<T>(
+  path: string,
+  opts: { method?: string; query?: Record<string, string>; body?: unknown } = {},
+  explicitToken?: string
+): Promise<T> {
+  // If Supabase Edge Function is configured, attempt to use it
+  if (SUPABASE_URL.startsWith('http') && SUPABASE_ANON_KEY) {
+    try {
+      const functionUrl = `${SUPABASE_URL}/functions/v1/github-proxy`;
+      const res = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ path, ...opts }),
+      });
+
+      if (res.ok) {
+        const text = await res.text();
+        if (!text) return null as T;
+        return JSON.parse(text) as T;
+      }
+    } catch {
+      // Fall through to direct fetch
+    }
+  }
+
+  // Direct fetch fallback using the Personal Access Token
+  return directGithubFetch<T>(path, opts, explicitToken);
 }
 
 export async function getConnection(): Promise<Connection | null> {
@@ -93,10 +155,10 @@ export async function connectToken(token: string): Promise<Connection> {
   const trimmed = token.trim();
   if (!trimmed) throw new Error('Token is required');
 
-  // Validate the token by fetching the authenticated user
-  const user = await proxy<{ login: string }>('/user', { method: 'GET' });
+  // Validate the token by fetching the authenticated user directly
+  const user = await proxy<{ login: string }>('/user', { method: 'GET' }, trimmed);
 
-  // Replace any existing connection (single-tenant)
+  // Replace any existing connection
   await supabase.from('github_connections').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
   const { data, error } = await supabase

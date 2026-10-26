@@ -1,67 +1,65 @@
-# Generating the Windows .exe
+# Gerando e Executando o Aplicativo Desktop (Windows .exe)
 
-The app is packaged as a desktop application using **Electron**. Because a
-valid Windows `.exe` must be built on Windows (or with a Windows CI runner),
-the build runs on **your** Windows machine — not in the cloud editor.
+O aplicativo é empacotado como um aplicativo desktop usando o **Electron**.
 
-## Prerequisites
+## Pré-requisitos
 
-- **Windows 10/11** (or a Windows VM)
-- **Node.js 18+ LTS** — https://nodejs.org
-- ~1 GB free disk (Electron binary + build cache)
+- **Windows 10 ou 11**
+- **Node.js 18+ (LTS recomendado)** — baixe em https://nodejs.org
 
-## One-command build
+---
 
-Download the project to your Windows machine, open a terminal in the project
-folder, and run:
+## Como rodar o aplicativo diretamente no seu computador
 
+1. Abra a pasta do projeto no terminal (CMD ou PowerShell).
+2. Instale as dependências:
+   ```bat
+   npm install
+   ```
+3. Compile a aplicação:
+   ```bat
+   npm run build
+   ```
+4. Inicie o aplicativo desktop:
+   ```bat
+   npm start
+   ```
+   *(ou `npm run electron:dev` para iniciar em modo de desenvolvimento)*
+
+---
+
+## Como gerar o instalador Windows (.exe)
+
+Basta dar dois cliques no arquivo:
 ```bat
 build-exe.bat
 ```
-
-Or, manually:
-
+Ou rodar no terminal:
 ```bat
 npm install
 npm run dist:win
 ```
 
-The installer appears in the `release\` folder:
-
+O instalador será gerado na pasta `release\`:
 ```
 release\AIProgrammingAgent-Setup-1.0.0.exe
 ```
 
-Double-click it to install like any Windows app — it creates a Start Menu
-shortcut, a desktop shortcut, and an uninstaller.
+Ao executar o instalador, o atalho na Área de Trabalho e no Menu Iniciar será criado automaticamente.
 
-## What the `.exe` contains
+---
 
-- The full web UI (built with Vite into `dist/`)
-- The Electron runtime, which wraps the UI in a native desktop window
-- Your Supabase credentials (read from the `.env` that's bundled at build time)
+## Banco de Dados e Conexão
 
-## Environment variables
+O aplicativo possui um mecanismo de **armazenamento local integrado**.
+Você **não** precisa configurar chaves do Supabase para o aplicativo abrir ou funcionar — o histórico de conversas, raciocínio do agente e mensagens são salvos localmente no seu computador.
+Caso queira conectar um projeto Supabase próprio no futuro, basta preencher o arquivo `.env`.
 
-The desktop app reads the same `.env` values as the web version
-(`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`). These are embedded into the
-bundle at build time, so fill in `.env` **before** running `npm run dist:win`.
+---
 
-## Other platforms
+## Solução de Problemas: Tela Escura / Vazia
 
-| Command | Output |
-|---|---|
-| `npm run dist:win` | Windows `.exe` installer (NSIS) |
-| `npm run dist:mac` | macOS `.dmg` |
-| `npm run dist:linux` | Linux `.AppImage` |
-
-## Development mode
-
-To run the app in a desktop window with hot-reload during development:
-
-```bat
-npm install
-npm run electron:dev
-```
-
-This starts Vite and opens an Electron window pointed at the local dev server.
+Se a tela abrir preta ou vazia:
+1. Certifique-se de executar `npm run build` antes de abrir o aplicativo standalone.
+2. Pressione a tecla **F12** (ou `Ctrl + Shift + I`) dentro da janela do aplicativo para abrir as ferramentas de desenvolvedor (DevTools) e verificar se há alguma mensagem no console.
+3. Se estiver usando o modo de desenvolvimento, certifique-se de que o comando `npm run dev` está em execução.
