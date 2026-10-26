@@ -1,5 +1,5 @@
 import type { AgentStep, CodeBlock, Message } from './supabase';
-import { generateWithQwen } from './qwenModel';
+import { generateWithRL, rlEngine, type RewardBreakdown, type RLAction } from './rlEngine';
 import { classifyIntent, stripGreetings, isPureGreeting, hasGreetingPrefix } from './intentClassifier';
 import {
   handleFeedbackBugReport,
@@ -8,12 +8,15 @@ import {
   handleModificationRequest,
 } from './contextualEngine';
 
-export { isPureGreeting, stripGreetings, hasGreetingPrefix };
+export { isPureGreeting, stripGreetings, hasGreetingPrefix, rlEngine };
 
 export type AgentResponse = {
   steps: AgentStep[];
   content: string;
   code: CodeBlock[];
+  reward?: RewardBreakdown;
+  actionTaken?: RLAction;
+  episodeId?: string;
 };
 
 export async function runAgent(task: string, history?: Message[]): Promise<AgentResponse> {
@@ -33,7 +36,7 @@ export async function runAgent(task: string, history?: Message[]): Promise<Agent
         },
       ],
       content:
-        'Olá! 👋 Tudo bem? Sou o seu Agente de Programação.\n\nPosso te ajudar a criar, explicar ou corrigir código em várias linguagens e frameworks (TypeScript, React, Python, Node.js, etc.).\n\nTodas as aplicações e websites que eu crio podem ser **executados, navegados e testados ao vivo** aqui dentro!\n\nO que você gostaria de construir hoje? Por exemplo:\n• *"Crie um jogo de Tetris arcade"*\n• *"Crie uma lista de tarefas com persistência no localStorage"*\n• *"Crie uma calculadora moderna"*\n• *"Crie um formulário com validação em tempo real"*\n• *"Crie um jogo da velha interativo"*',
+        'Olá! 👋 Tudo bem? Sou o seu Agente de Programação.\n\nPosso te ajudar a criar, explicar ou corrigir código em várias linguagens e frameworks (TypeScript, React, Python, Node.js, etc.).\n\nTodas as aplicações e websites que eu crio podem ser **executados, navegados e testados ao vivo** aqui dentro com calibração contínua via Aprendizado por Reforço (RL)!\n\nO que você gostaria de construir hoje? Por exemplo:\n• *"Crie um jogo de Tetris arcade"*\n• *"Crie uma lista de tarefas com persistência no localStorage"*\n• *"Crie uma calculadora moderna"*\n• *"Crie um formulário com validação em tempo real"*\n• *"Crie um jogo da velha interativo"*',
       code: [],
     };
   }
@@ -79,19 +82,22 @@ export async function runAgent(task: string, history?: Message[]): Promise<Agent
     };
   }
 
-  // 7. Novo Projeto: Sintetizado pelo modelo Qwen3-Coder-30B-A3B-Instruct
+  // 7. Novo Projeto: Sintetizado e otimizado pelo Reinforcement Learning Engine (com Gemini 3.8 Flash)
   const effectiveTask = stripGreetings(task) || task;
-  const qwenResult = await generateWithQwen(effectiveTask, history);
+  const rlResult = await generateWithRL(effectiveTask, history);
 
-  let finalExplanation = qwenResult.content;
+  let finalExplanation = rlResult.content;
   if (hasGreetingPrefix(task)) {
-    finalExplanation = `Olá! 👋 Com certeza! ${qwenResult.content}`;
+    finalExplanation = `Olá! 👋 Com certeza! ${rlResult.content}`;
   }
 
   return {
-    steps: qwenResult.steps,
+    steps: rlResult.steps,
     content: finalExplanation,
-    code: qwenResult.code,
+    code: rlResult.code,
+    reward: rlResult.reward,
+    actionTaken: rlResult.actionTaken,
+    episodeId: rlResult.episodeId,
   };
 }
 

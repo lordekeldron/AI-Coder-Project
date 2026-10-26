@@ -6,7 +6,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { MessageList } from '@/components/Message';
 import { GithubPanel } from '@/components/GithubPanel';
 import { UpdatesModal } from '@/components/UpdatesModal';
-import { ModelInfoModal } from '@/components/ModelInfoModal';
+import { RLDashboardModal } from '@/components/RLDashboardModal';
 import { ContextShiftBanner } from '@/components/ContextShiftBanner';
 import { checkForUpdates } from '@/lib/updater';
 import {
@@ -34,7 +34,7 @@ export default function App() {
   const [githubOpen, setGithubOpen] = useState(false);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
-  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [rlModalOpen, setRlModalOpen] = useState(false);
   const [autoRenameEnabled, setAutoRenameEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('ai_studio_auto_rename_context') === 'true';
@@ -477,13 +477,13 @@ export default function App() {
 
           <div className="ml-auto flex items-center gap-2">
             <button
-              onClick={() => setModelModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1.5 text-xs text-indigo-300 transition-all font-medium shadow-sm"
-              title="Detalhes do modelo Qwen3-Coder-30B-A3B-Instruct"
+              onClick={() => setRlModalOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 text-xs text-emerald-300 transition-all font-medium shadow-sm"
+              title="Painel de Reinforcement Learning & Telemetria"
             >
-              <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-              <span className="font-semibold text-slate-200">Qwen3-Coder</span>
-              <span className="hidden sm:inline font-mono text-[10px] text-indigo-300/80 bg-indigo-500/20 px-1 py-0.5 rounded">30B MoE</span>
+              <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="font-semibold text-slate-200">RL Engine</span>
+              <span className="hidden sm:inline font-mono text-[10px] text-emerald-300/80 bg-emerald-500/20 px-1 py-0.5 rounded">Gemini + MDP</span>
             </button>
 
             <button
@@ -541,8 +541,8 @@ export default function App() {
               </div>
               <h1 className="text-2xl font-semibold text-slate-100 mb-2">O que devo construir?</h1>
               <p className="text-slate-400 text-center max-w-md mb-8 leading-relaxed text-sm">
-                Alimentado pelo modelo <span className="text-cyan-400 font-semibold">Qwen3-Coder-30B-A3B-Instruct</span> (MoE 256K).
-                Descreva uma tarefa de programação e o agente vai raciocinar passo a passo e devolver código executável com preview ao vivo.
+                Otimizado com <span className="text-emerald-400 font-semibold">Reinforcement Learning</span> e Gemini nativo.
+                Descreva uma tarefa de programação e o agente vai raciocinar passo a passo e devolver código executável com preview ao vivo calibrado por recompensas.
               </p>
               <div className="grid gap-2 sm:grid-cols-2 w-full max-w-2xl">
                 {SUGGESTIONS.map((s) => (
@@ -603,9 +603,9 @@ export default function App() {
             onUpdateDetected={setHasUpdate}
           />
         )}
-        <ModelInfoModal
-          isOpen={modelModalOpen}
-          onClose={() => setModelModalOpen(false)}
+        <RLDashboardModal
+          isOpen={rlModalOpen}
+          onClose={() => setRlModalOpen(false)}
         />
       </main>
     </div>

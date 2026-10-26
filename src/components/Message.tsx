@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Brain, ClipboardList, Code2, Play, Search, User } from 'lucide-react';
+import { Brain, ClipboardList, Code2, Play, Search, User, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react';
 import type { AgentStep, Message as MessageType } from '@/lib/supabase';
 import { CodeView } from './CodeView';
 import { AppPreview } from './AppPreview';
+import { rlEngine } from '@/lib/rlEngine';
 
 const PHASE_META: Record<AgentStep['phase'], { label: string; icon: typeof Brain; color: string }> = {
   understand: { label: 'Entender', icon: Search, color: 'text-sky-400' },
@@ -22,6 +23,7 @@ export function MessageBubble({ message, streamingSteps, isStreaming }: Props) {
   const steps = streamingSteps ?? message.steps ?? null;
   const code = message.code ?? null;
   const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview');
+  const [rlhfScore, setRlhfScore] = useState<1 | -1 | null>(null);
 
   if (isUser) {
     return (
@@ -126,6 +128,51 @@ export function MessageBubble({ message, streamingSteps, isStreaming }: Props) {
                     <CodeView key={i} block={block} />
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* RLHF Feedback & Policy Reinforcement Controls */}
+          {!isStreaming && (message.content || (code && code.length > 0)) && (
+            <div className="flex items-center gap-2 pt-1 text-xs text-slate-400">
+              <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                <Sparkles className="h-3 w-3 text-emerald-400" />
+                Reforço da Resposta:
+              </span>
+              <button
+                onClick={() => {
+                  setRlhfScore(1);
+                  rlEngine.recordHumanFeedback(message.id, 1);
+                }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border transition-all ${
+                  rlhfScore === 1
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
+                    : 'border-slate-800 hover:border-slate-700 hover:text-slate-200'
+                }`}
+                title="Avaliar positivamente (+1 recompensa na política RL)"
+              >
+                <ThumbsUp className="h-3 w-3" />
+                <span className="text-[11px]">Útil</span>
+              </button>
+              <button
+                onClick={() => {
+                  setRlhfScore(-1);
+                  rlEngine.recordHumanFeedback(message.id, -1);
+                }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border transition-all ${
+                  rlhfScore === -1
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-xs'
+                    : 'border-slate-800 hover:border-slate-700 hover:text-slate-200'
+                }`}
+                title="Avaliar negativamente (-1 penalidade na política RL)"
+              >
+                <ThumbsDown className="h-3 w-3" />
+                <span className="text-[11px]">Não útil</span>
+              </button>
+              {rlhfScore !== null && (
+                <span className="text-[10px] text-emerald-400 font-mono animate-in fade-in">
+                  {rlhfScore === 1 ? '✓ Recompensa gravada' : '✓ Penalidade gravada'}
+                </span>
               )}
             </div>
           )}
