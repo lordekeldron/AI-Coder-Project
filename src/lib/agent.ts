@@ -6,24 +6,31 @@ export type AgentResponse = {
   code: CodeBlock[];
 };
 
-const PHASE_TEMPLATES: Record<AgentStep['phase'], (task: string) => { title: string; detail: string }> = {
+const GREETING_RE =
+  /^\s*(ol[aá]|oi|opa|e a[ií]|bom dia|boa tarde|boa noite|hello|hi|hey|salve)\b[.!?\s]*$/i;
+
+const PHASE_TEMPLATES: Record<
+  AgentStep['phase'],
+  (task: string) => { title: string; detail: string }
+> = {
   understand: (task) => ({
-    title: 'Parsing the request',
-    detail: `Breaking down "${truncate(task, 80)}". Identifying the user-facing behavior, edge cases, and what a complete solution must produce so nothing is left half-built.`,
+    title: 'Entendendo o pedido',
+    detail: `Analisando "${truncate(task, 80)}". Identificando o comportamento esperado, casos extremos e o que uma solução completa precisa entregar para não deixar nada pela metade.`,
   }),
   plan: (task) => ({
-    title: 'Designing the approach',
+    title: 'Planejando a abordagem',
     detail: pickPlan(task),
   }),
   implement: (task) => ({
-    title: 'Writing the code',
-    detail: `Producing clean, typed, production-ready code for "${truncate(task, 60)}". Following existing conventions, reusing utilities before adding new ones, and keeping each module cohesive.`,
+    title: 'Escrevendo o código',
+    detail: `Produzindo código limpo, tipado e pronto para produção para "${truncate(task, 60)}". Seguindo as convenções existentes, reutilizando utilitários quando possível e mantendo cada módulo coeso.`,
   }),
   review: (task) => {
     void task;
     return {
-      title: 'Verifying the result',
-      detail: `Re-reading the implementation against the original goal. Checking error handling at boundaries, type safety, and that every step the user would need is actually wired up. No dead ends.`,
+      title: 'Verificando o resultado',
+      detail:
+        'Relendo a implementação em relação ao objetivo original. Verificando tratamento de erros nas fronteiras, segurança de tipos e se todos os passos necessários estão realmente conectados. Sem beco sem saída.',
     };
   },
 };
@@ -31,18 +38,25 @@ const PHASE_TEMPLATES: Record<AgentStep['phase'], (task: string) => { title: str
 function pickPlan(task: string): string {
   const t = task.toLowerCase();
   if (t.includes('api') || t.includes('fetch') || t.includes('endpoint')) {
-    return 'Adding a typed client wrapper with loading + error states, surfacing failures visibly instead of letting undefined reach the UI. Validating the response shape before binding it.';
+    return 'Adicionando um cliente tipado com estados de loading + erro, exibindo falhas de forma visível em vez de deixar undefined chegar na UI. Validando o formato da resposta antes de usá-la.';
   }
-  if (t.includes('form') || t.includes('input') || t.includes('validation')) {
-    return 'Building the full flow: field state, validation on submit, accessible error messages, and a clear success state. No form that ends at a dead end.';
+  if (t.includes('form') || t.includes('input') || t.includes('validação') || t.includes('validation')) {
+    return 'Montando o fluxo completo: estado dos campos, validação no envio, mensagens de erro acessíveis e um estado de sucesso claro. Nenhum formulário que termine em beco sem saída.';
   }
-  if (t.includes('page') || t.includes('view') || t.includes('screen') || t.includes('component')) {
-    return 'Sketching the layout, establishing visual hierarchy and spacing, then filling in data binding and interaction states (hover, loading, empty, error).';
+  if (
+    t.includes('página') ||
+    t.includes('page') ||
+    t.includes('view') ||
+    t.includes('tela') ||
+    t.includes('component') ||
+    t.includes('componente')
+  ) {
+    return 'Esboçando o layout, estabelecendo hierarquia visual e espaçamento, depois preenchendo ligação de dados e estados de interação (hover, loading, vazio, erro).';
   }
-  if (t.includes('bug') || t.includes('fix') || t.includes('error')) {
-    return 'Reproducing the failure, reading the actual error, then fixing the root cause rather than working around the symptom. Confirming the fix doesn\'t regress adjacent behavior.';
+  if (t.includes('bug') || t.includes('fix') || t.includes('erro') || t.includes('error')) {
+    return 'Reproduzindo a falha, lendo o erro real e corrigindo a causa raiz em vez de contornar o sintoma. Confirmando que a correção não regrediu comportamentos adjacentes.';
   }
-  return 'Laying out the modules by cohesion, defining shared types up front so references resolve immediately, then implementing each piece complete and correct on the first pass.';
+  return 'Organizando os módulos por coesão, definindo tipos compartilhados logo no início para que as referências resolvam imediatamente e implementando cada peça completa e correta na primeira passagem.';
 }
 
 function truncate(s: string, n: number): string {
@@ -71,7 +85,7 @@ export function useFeature(input: string) {
       setData(result);
       setStatus('ready');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong');
+      setError(e instanceof Error ? e.message : 'Algo deu errado');
       setStatus('error');
     }
   }
@@ -80,7 +94,7 @@ export function useFeature(input: string) {
 }
 
 async function resolve(input: string): Promise<string> {
-  // domain logic lives here
+  // a lógica de domínio fica aqui
   return input.toUpperCase();
 }`,
   },
@@ -88,15 +102,34 @@ async function resolve(input: string): Promise<string> {
 
 const ANSWER_TEMPLATES = [
   (task: string) =>
-    `Here's a complete implementation for "${truncate(task, 70)}". I built the full path end-to-end — typed state, explicit loading and error handling at the boundary, and no dead ends. The code reuses existing patterns where they fit and adds nothing speculative. Run it and you'll see loading → ready (or a visible error if the input is bad), never a silent undefined on screen.`,
+    `Aqui está uma implementação completa para "${truncate(task, 70)}". Montei o caminho de ponta a ponta — estado tipado, loading e tratamento de erro explícitos na fronteira, e sem becos sem saída. O código reutiliza padrões existentes quando cabem e não adiciona nada especulativo. Ao rodar você verá loading → ready (ou um erro visível se a entrada for inválida), nunca um undefined silencioso na tela.`,
   (task: string) =>
-    `Done. I read the surrounding code first, matched its conventions, and shipped "${truncate(task, 70)}" as one cohesive flow. Every step a user would need is wired up; error paths surface visibly instead of failing silently. No half-finished stubs, no abstractions added for hypothetical future needs.`,
+    `Pronto. Li o código ao redor primeiro, segui as convenções dele e entreguei "${truncate(task, 70)}" como um fluxo coeso. Todos os passos que o usuário precisa estão conectados; caminhos de erro aparecem de forma visível em vez de falharem em silêncio. Sem stubs pela metade, sem abstrações para necessidades futuras hipotéticas.`,
   (task: string) =>
-    `Implemented "${truncate(task, 70)}" with attention to the boundaries — input is validated, async results are checked before use, and failures show a real error state rather than letting malformed data reach the UI. The module is cohesive and exports only what callers need.`,
+    `Implementei "${truncate(task, 70)}" com atenção às fronteiras — a entrada é validada, resultados assíncronos são verificados antes do uso e falhas mostram um estado de erro real em vez de deixar dados malformados chegarem na UI. O módulo é coeso e exporta apenas o que os chamadores precisam.`,
 ];
+
+function isGreeting(task: string): boolean {
+  return GREETING_RE.test(task.trim());
+}
 
 export async function runAgent(task: string): Promise<AgentResponse> {
   await delay(450);
+
+  if (isGreeting(task)) {
+    return {
+      steps: [
+        {
+          phase: 'understand',
+          title: 'Recebendo a saudação',
+          detail: 'Detectei uma mensagem de cumprimento. Respondendo de forma amigável em português.',
+        },
+      ],
+      content:
+        'Olá! 👋 Sou o agente de programação. Posso te ajudar a criar, corrigir ou explicar código passo a passo.\n\nÉ só descrever a tarefa (por exemplo: “crie um formulário com validação” ou “corrija esse bug no fetch”) e eu faço o resto.',
+      code: [],
+    };
+  }
 
   const phases: AgentStep['phase'][] = ['understand', 'plan', 'implement', 'review'];
   const steps: AgentStep[] = phases.map((phase) => ({
@@ -106,7 +139,10 @@ export async function runAgent(task: string): Promise<AgentResponse> {
 
   const answer = ANSWER_TEMPLATES[Math.floor(Math.random() * ANSWER_TEMPLATES.length)](task);
 
-  const includeCode = /api|fetch|form|input|hook|component|page|view|build|implement|create|add|feature|function/i.test(task);
+  const includeCode =
+    /api|fetch|form|input|hook|component|página|page|view|tela|build|implement|create|add|feature|function|crie|criar|implemente|adicione|corrija|bug|erro/i.test(
+      task
+    );
   const code = includeCode ? CODE_SAMPLES : [];
 
   return { steps, content: answer, code };
