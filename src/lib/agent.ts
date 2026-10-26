@@ -1,4 +1,5 @@
 import type { AgentStep, CodeBlock } from './supabase';
+import { getAppForTask } from './appTemplates';
 
 export type AgentResponse = {
   steps: AgentStep[];
@@ -60,59 +61,13 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n).trimEnd() + '…' : s;
 }
 
-const CODE_SAMPLES: CodeBlock[] = [
-  {
-    filename: 'feature.ts',
-    language: 'typescript',
-    content: `import { useState } from 'react';
-
-type Status = 'idle' | 'loading' | 'ready' | 'error';
-
-export function useFeature(input: string) {
-  const [status, setStatus] = useState<Status>('idle');
-  const [data, setData] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function run() {
-    if (!input.trim()) return;
-    setStatus('loading');
-    setError(null);
-    try {
-      const result = await resolve(input);
-      setData(result);
-      setStatus('ready');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Algo deu errado');
-      setStatus('error');
-    }
-  }
-
-  return { status, data, error, run };
-}
-
-async function resolve(input: string): Promise<string> {
-  // a lógica de domínio fica aqui
-  return input.toUpperCase();
-}`,
-  },
-];
-
-const ANSWER_TEMPLATES = [
-  (task: string) =>
-    `Aqui está uma implementação completa para "${truncate(task, 70)}". Montei o caminho de ponta a ponta — estado tipado, loading e tratamento de erro explícitos na fronteira, e sem becos sem saída. O código reutiliza padrões existentes quando cabem e não adiciona nada especulativo. Ao rodar você verá loading → ready (ou um erro visível se a entrada for inválida), nunca um undefined silencioso na tela.`,
-  (task: string) =>
-    `Pronto. Li o código ao redor primeiro, segui as convenções dele e entreguei "${truncate(task, 70)}" como um fluxo coeso. Todos os passos que o usuário precisa estão conectados; caminhos de erro aparecem de forma visível em vez de falharem em silêncio. Sem stubs pela metade, sem abstrações para necessidades futuras hipotéticas.`,
-  (task: string) =>
-    `Implementei "${truncate(task, 70)}" com atenção às fronteiras — a entrada é validada, resultados assíncronos são verificados antes do uso e falhas mostram um estado de erro real em vez de deixar dados malformados chegarem na UI. O módulo é coeso e exporta apenas o que os chamadores precisam.`,
-];
-
 function normalizeText(text: string): string {
   return text
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // remove acentos (olá -> ola, aí -> ai)
-    .replace(/[^\w\s]/g, '') // remove pontuações
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -164,7 +119,7 @@ function isHelpOrQuestion(task: string): boolean {
 export async function runAgent(task: string): Promise<AgentResponse> {
   await delay(450);
 
-  // Tratamento de saudações (Olá, Oi, Bom dia, etc.)
+  // Tratamento de saudações
   if (isGreeting(task)) {
     return {
       steps: [
@@ -175,7 +130,7 @@ export async function runAgent(task: string): Promise<AgentResponse> {
         },
       ],
       content:
-        'Olá! 👋 Tudo bem? Sou o seu Agente de Programação.\n\nPosso te ajudar a criar, explicar ou corrigir código em várias linguagens e frameworks (TypeScript, React, Python, Node.js, etc.).\n\nO que você gostaria de construir hoje? Por exemplo:\n• *"Crie um componente de formulário com validação"*\n• *"Adicione persistência com localStorage"*\n• *"Crie um hook customizado de debounce"*\n• *"Corrija uma função assíncrona com timeout"*',
+        'Olá! 👋 Tudo bem? Sou o seu Agente de Programação.\n\nPosso te ajudar a criar, explicar ou corrigir código em várias linguagens e frameworks (TypeScript, React, Python, Node.js, etc.).\n\nAgora todas as aplicações e websites que eu crio podem ser **executados, navegados e testados ao vivo** aqui dentro!\n\nO que você gostaria de construir hoje? Por exemplo:\n• *"Crie uma lista de tarefas com persistência no localStorage"*\n• *"Crie uma calculadora moderna"*\n• *"Crie um formulário com validação em tempo real"*\n• *"Crie um jogo da velha interativo"*',
       code: [],
     };
   }
@@ -191,7 +146,7 @@ export async function runAgent(task: string): Promise<AgentResponse> {
         },
       ],
       content:
-        'Eu sou um agente focado em desenvolvimento de software! 🚀\n\nQuando você me pede uma tarefa de programação, eu trabalho em 4 passos:\n1. 🔍 **Entender**: Analiso o objetivo e identifico casos de borda.\n2. 📋 **Planejar**: Estruturo a arquitetura e os tipos de dados necessários.\n3. 💻 **Implementar**: Escrevo código limpo, tipado e completo.\n4. 🧠 **Revisar**: Confiro tratamento de erros, tipagem e consistência.\n\nBasta digitar a tarefa que você precisa implementar ou o problema que quer resolver!',
+        'Eu sou um agente focado em desenvolvimento de software e criação de aplicações completas! 🚀\n\nQuando você me pede uma tarefa de programação, eu trabalho em 4 passos:\n1. 🔍 **Entender**: Analiso o objetivo e identifico casos de borda.\n2. 📋 **Planejar**: Estruturo a arquitetura e os tipos de dados necessários.\n3. 💻 **Implementar**: Escrevo código limpo, tipado e completo.\n4. 🧠 **Revisar**: Confiro tratamento de erros, tipagem e consistência.\n\nAlém de entregar o código, você pode **executar e navegar no aplicativo diretamente pelo painel interativo**, alternar entre visão Desktop, Tablet e Mobile, e até baixar o HTML pronto!',
       code: [],
     };
   }
@@ -202,15 +157,14 @@ export async function runAgent(task: string): Promise<AgentResponse> {
     ...PHASE_TEMPLATES[phase](task),
   }));
 
-  const answer = ANSWER_TEMPLATES[Math.floor(Math.random() * ANSWER_TEMPLATES.length)](task);
+  // Gera o aplicativo completo e testável correspondente à tarefa solicitada
+  const generatedApp = getAppForTask(task);
 
-  const includeCode =
-    /api|fetch|form|input|hook|component|página|page|view|tela|build|implement|create|add|feature|function|crie|criar|implemente|adicione|corrija|bug|erro|script|classe|interface|typescript|javascript|python/i.test(
-      task
-    );
-  const code = includeCode ? CODE_SAMPLES : [];
-
-  return { steps, content: answer, code };
+  return {
+    steps,
+    content: generatedApp.explanation,
+    code: generatedApp.code,
+  };
 }
 
 function delay(ms: number): Promise<void> {
