@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ChevronRight,
+  ExternalLink,
   FileCode,
   Folder,
   GitBranch,
@@ -19,18 +20,21 @@ import {
   disconnect,
   getConnection,
   getFile,
+  hasDeviceFlowSupport,
   listBranches,
   listContents,
   listPrs,
   listRepos,
   parseRepo,
+  pollDeviceFlow,
+  startDeviceFlow,
   type Connection,
+  type DeviceCodeResponse,
   type GithubBranch,
   type GithubFile,
   type GithubPr,
   type GithubRepo,
 } from '@/lib/github';
-
 
 type Props = { onClose: () => void };
 
@@ -67,7 +71,7 @@ export function GithubPanel({ onClose }: Props) {
       setConnection(conn);
       setTab(conn ? 'repos' : 'connect');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load connection');
+      setError(e instanceof Error ? e.message : 'Falha ao carregar conexão');
     } finally {
       setLoadingConn(false);
     }
@@ -79,26 +83,26 @@ export function GithubPanel({ onClose }: Props) {
       <div className="relative ml-auto h-full w-full max-w-3xl bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col">
         <header className="flex items-center gap-3 h-14 px-4 border-b border-slate-800 shrink-0">
           <GitPullRequest className="h-5 w-5 text-emerald-400" />
-          <span className="font-semibold text-slate-100">GitHub Integration</span>
+          <span className="font-semibold text-slate-100">Integração GitHub</span>
           {connection && (
             <span className="text-xs text-slate-400">
-              · connected as <span className="text-slate-200 font-medium">{connection.username}</span>
+              · conectado como <span className="text-slate-200 font-medium">{connection.username}</span>
             </span>
           )}
           <button
             onClick={onClose}
             className="ml-auto text-slate-400 hover:text-slate-100 transition-colors text-sm"
           >
-            Close
+            Fechar
           </button>
         </header>
 
         {connection && (
           <nav className="flex gap-1 px-4 border-b border-slate-800 shrink-0">
-            <TabButton active={tab === 'repos'} onClick={() => setTab('repos')} icon={Folder} label="Repositories" />
+            <TabButton active={tab === 'repos'} onClick={() => setTab('repos')} icon={Folder} label="Repositórios" />
             <TabButton active={tab === 'editor'} onClick={() => setTab('editor')} icon={FileCode} label="Editor" />
             <TabButton active={tab === 'prs'} onClick={() => setTab('prs')} icon={GitPullRequest} label="Pull Requests" />
-            <TabButton active={tab === 'connect'} onClick={() => setTab('connect')} icon={Trash2} label="Settings" />
+            <TabButton active={tab === 'connect'} onClick={() => setTab('connect')} icon={Trash2} label="Configurações" />
           </nav>
         )}
 
@@ -117,19 +121,12 @@ export function GithubPanel({ onClose }: Props) {
             <ConnectView
               connected={connection}
               busy={busy}
-              onConnect={async (token) => {
-                setBusy(true);
-                setError(null);
-                try {
-                  const conn = await connectToken(token);
-                  setConnection(conn);
-                  setTab('repos');
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : 'Could not connect');
-                } finally {
-                  setBusy(false);
-                }
+              onConnected={(conn) => {
+                setConnection(conn);
+                setTab('repos');
               }}
+              onBusy={setBusy}
+              onError={setError}
               onDisconnect={async () => {
                 setBusy(true);
                 try {
@@ -137,20 +134,23 @@ export function GithubPanel({ onClose }: Props) {
                   setConnection(null);
                   setTab('connect');
                 } catch (e) {
-                  setError(e instanceof Error ? e.message : 'Could not disconnect');
+                  setError(e instanceof Error ? e.message : 'Não foi possível desconectar');
                 } finally {
                   setBusy(false);
                 }
               }}
             />
           ) : tab === 'repos' ? (
-            <ReposView onOpenEditor={(repo) => {
-              setTab('editor');
-              window.dispatchEvent(new CustomEvent('github:open-repo', { detail: repo }));
-            }} onOpenPrs={(repo) => {
-              setTab('prs');
-              window.dispatchEvent(new CustomEvent('github:open-repo', { detail: repo }));
-            }} />
+            <ReposView
+              onOpenEditor={(repo) => {
+                setTab('editor');
+                window.dispatchEvent(new CustomEvent('github:open-repo', { detail: repo }));
+              }}
+              onOpenPrs={(repo) => {
+                setTab('prs');
+                window.dispatchEvent(new CustomEvent('github:open-repo', { detail: repo }));
+              }}
+            />
           ) : tab === 'editor' ? (
             <EditorView />
           ) : (
@@ -191,65 +191,197 @@ function TabButton({
 function ConnectView({
   connected,
   busy,
-  onConnect,
+  onConnected,
+  onBusy,
+  onError,
   onDisconnect,
 }: {
   connected: Connection | null;
   busy: boolean;
-  onConnect: (token: string) => void;
+  onConnected: (c: Connection) => void;
+  onBusy: (b: boolean) => void;
+  onError: (msg: string | null) => void;
   onDisconnect: () => void;
 }) {
   const [token, setToken] = useState('');
+  const [showPatFallback, setShowPatFallback] = useState(false);
+  const [device, setDevice] = useState<DeviceCodeResponse | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  async function startOAuth() {
+    onError(null);
+    onBusy(true);
+    try {
+      const dc = await startDeviceFlow();
+      setDevice(dc);
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+
+      const conn = await pollDeviceFlow(dc.device_code, dc.interval || 5, ac.signal);
+      setDevice(null);
+      onConnected(conn);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      onError(e instanceof Error ? e.message : 'Falha na autorização');
+      setDevice(null);
+    } finally {
+      onBusy(false);
+    }
+  }
+
+  async function connectWithPat() {
+    onError(null);
+    onBusy(true);
+    try {
+      const conn = await connectToken(token);
+      onConnected(conn);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Não foi possível conectar');
+    } finally {
+      onBusy(false);
+    }
+  }
+
+  if (connected) {
+    return (
+      <div className="max-w-md mx-auto py-8 space-y-4">
+        <div className="rounded-xl border border-emerald-900/50 bg-emerald-950/30 px-4 py-3">
+          <p className="text-sm text-emerald-300">
+            Conectado como <span className="font-semibold">{connected.username}</span>
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            O token é armazenado com segurança e usado apenas para chamar a API do GitHub.
+          </p>
+        </div>
+        <button
+          onClick={onDisconnect}
+          disabled={busy}
+          className="w-full rounded-lg border border-rose-900/60 bg-rose-950/40 hover:bg-rose-950/60 px-3 py-2.5 text-sm text-rose-300 transition-colors disabled:opacity-50"
+        >
+          {busy ? 'Desconectando…' : 'Desconectar conta do GitHub'}
+        </button>
+      </div>
+    );
+  }
+
+  if (device) {
+    return (
+      <div className="max-w-md mx-auto py-8 space-y-5">
+        <div className="text-center space-y-2">
+          <h2 className="text-lg font-semibold text-slate-100">Autorize no GitHub</h2>
+          <p className="text-sm text-slate-400">
+            Abra o link abaixo e digite o código. Depois volte aqui — a conexão é concluída
+            automaticamente.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-5 text-center space-y-3">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Seu código</p>
+          <p className="text-3xl font-mono font-bold tracking-[0.2em] text-emerald-400">
+            {device.user_code}
+          </p>
+          <a
+            href={device.verification_uri}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-sky-400 hover:text-sky-300"
+          >
+            {device.verification_uri}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
+
+        <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Aguardando autorização…
+        </div>
+
+        <button
+          onClick={() => {
+            abortRef.current?.abort();
+            setDevice(null);
+            onBusy(false);
+          }}
+          className="w-full rounded-lg border border-slate-700 hover:border-slate-600 px-3 py-2 text-sm text-slate-300 transition-colors"
+        >
+          Cancelar
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto py-8 space-y-5">
-      {connected ? (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-emerald-900/50 bg-emerald-950/30 px-4 py-3">
-            <p className="text-sm text-emerald-300">Connected as <span className="font-semibold">{connected.username}</span></p>
-            <p className="text-xs text-slate-500 mt-1">
-              Your token is stored securely and only used server-side to call the GitHub API.
-            </p>
-          </div>
-          <button
-            onClick={onDisconnect}
-            disabled={busy}
-            className="w-full rounded-lg border border-rose-900/60 bg-rose-950/40 hover:bg-rose-950/60 px-3 py-2.5 text-sm text-rose-300 transition-colors disabled:opacity-50"
-          >
-            {busy ? 'Disconnecting…' : 'Disconnect GitHub account'}
-          </button>
-        </div>
+      <div>
+        <h2 className="text-lg font-semibold text-slate-100 mb-1">Conectar conta do GitHub</h2>
+        <p className="text-sm text-slate-400 leading-relaxed">
+          A forma mais fácil é autorizar pelo navegador (Device Flow). Você não precisa criar um
+          token pessoal manualmente.
+        </p>
+      </div>
+
+      {hasDeviceFlowSupport() ? (
+        <button
+          onClick={startOAuth}
+          disabled={busy}
+          className="w-full rounded-lg bg-gradient-to-br from-emerald-400 to-sky-500 text-white px-3 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? 'Iniciando…' : 'Conectar com GitHub'}
+        </button>
       ) : (
-        <div className="space-y-4">
+        <div className="rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-200/90">
+          Device Flow ainda não está configurado (falta <code className="text-amber-100">VITE_GITHUB_CLIENT_ID</code>).
+          Use o fallback com token pessoal abaixo ou configure um OAuth App no GitHub.
+        </div>
+      )}
+
+      <div className="relative py-2">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-slate-800" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-slate-900 px-2 text-slate-600">ou</span>
+        </div>
+      </div>
+
+      {!showPatFallback ? (
+        <button
+          onClick={() => setShowPatFallback(true)}
+          className="w-full text-sm text-slate-500 hover:text-slate-300 transition-colors"
+        >
+          Usar token pessoal (PAT) em vez disso
+        </button>
+      ) : (
+        <div className="space-y-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-100 mb-1">Connect your GitHub account</h2>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Create a fine-grained personal access token with read/write access to your repositories
-              and pull requests. The token is stored on the server and never exposed to the browser
-              after it's saved.
-            </p>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Personal Access Token</label>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              Personal Access Token
+            </label>
             <input
               type="password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              placeholder="github_pat_… or ghp_…"
+              placeholder="github_pat_… ou ghp_…"
               className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
             />
           </div>
           <button
-            onClick={() => onConnect(token)}
+            onClick={connectWithPat}
             disabled={busy || !token.trim()}
-            className="w-full rounded-lg bg-gradient-to-br from-emerald-400 to-sky-500 text-white px-3 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-750 px-3 py-2.5 text-sm text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {busy ? 'Connecting…' : 'Connect'}
+            {busy ? 'Conectando…' : 'Conectar com token'}
           </button>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Tip: at github.com → Settings → Developer settings → Personal access tokens, create a
-            fine-grained token with Contents (read & write) and Pull requests (read & write)
-            permissions for the repositories you want the agent to work on.
+            Dica: em github.com → Settings → Developer settings → Personal access tokens, crie um
+            token fine-grained com permissões de Contents e Pull requests (leitura e escrita).
           </p>
         </div>
       )}
@@ -276,7 +408,7 @@ function ReposView({
       const r = await listRepos();
       setRepos(r);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not load repositories');
+      setErr(e instanceof Error ? e.message : 'Não foi possível carregar os repositórios');
     } finally {
       setLoading(false);
     }
@@ -294,14 +426,14 @@ function ReposView({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter repositories…"
+          placeholder="Filtrar repositórios…"
           className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
         />
         <button
           onClick={load}
           className="flex items-center gap-1.5 rounded-lg border border-slate-700 hover:border-slate-600 px-3 py-2 text-sm text-slate-300 transition-colors"
         >
-          <RefreshCw className="h-4 w-4" /> Refresh
+          <RefreshCw className="h-4 w-4" /> Atualizar
         </button>
       </div>
 
@@ -314,7 +446,7 @@ function ReposView({
       ) : err ? (
         <div className="rounded-lg border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-300">{err}</div>
       ) : filtered.length === 0 ? (
-        <p className="text-center text-sm text-slate-500 py-12">No repositories found.</p>
+        <p className="text-center text-sm text-slate-500 py-12">Nenhum repositório encontrado.</p>
       ) : (
         <ul className="space-y-1.5">
           {filtered.map((r) => (
@@ -329,13 +461,13 @@ function ReposView({
                   {r.description && <p className="text-xs text-slate-500 truncate">{r.description}</p>}
                 </div>
                 {r.private && (
-                  <span className="text-[10px] uppercase tracking-wider text-amber-400/80">Private</span>
+                  <span className="text-[10px] uppercase tracking-wider text-amber-400/80">Privado</span>
                 )}
                 <button
                   onClick={() => onOpenEditor(r)}
                   className="text-xs text-slate-400 hover:text-emerald-400 transition-colors opacity-0 group-hover:opacity-100"
                 >
-                  Edit
+                  Editar
                 </button>
                 <button
                   onClick={() => onOpenPrs(r)}
@@ -400,7 +532,7 @@ function EditorView() {
         setBranch(repo.default_branch ?? b[0]?.name ?? 'main');
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not load branches');
+      setErr(e instanceof Error ? e.message : 'Não foi possível carregar as branches');
     } finally {
       setLoading(false);
     }
@@ -415,7 +547,7 @@ function EditorView() {
       const c = await listContents(owner, name, p, branch);
       setItems(Array.isArray(c) ? c : []);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not load contents');
+      setErr(e instanceof Error ? e.message : 'Não foi possível carregar o conteúdo');
       setItems([]);
     } finally {
       setLoading(false);
@@ -439,7 +571,7 @@ function EditorView() {
         original: decoded,
       });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not open file');
+      setErr(e instanceof Error ? e.message : 'Não foi possível abrir o arquivo');
     } finally {
       setLoading(false);
     }
@@ -456,7 +588,7 @@ function EditorView() {
       setCommitMsg('');
       await loadContents(path.join('/'));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not save file');
+      setErr(e instanceof Error ? e.message : 'Não foi possível salvar o arquivo');
     } finally {
       setSaving(false);
     }
@@ -469,14 +601,14 @@ function EditorView() {
     try {
       const { owner, repo: name } = parseRepo(repo.full_name);
       const fromSha = branches.find((b) => b.name === branch)?.commit.sha;
-      if (!fromSha) throw new Error('No source SHA to branch from');
+      if (!fromSha) throw new Error('Nenhum SHA de origem para criar a branch');
       await createBranch(owner, name, newBranchName.trim(), fromSha);
       setBranch(newBranchName.trim());
       setNewBranchName('');
       setShowBranchForm(false);
       await loadBranches();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not create branch');
+      setErr(e instanceof Error ? e.message : 'Não foi possível criar a branch');
     } finally {
       setSaving(false);
     }
@@ -486,7 +618,9 @@ function EditorView() {
     return (
       <div className="text-center py-16">
         <FileCode className="h-10 w-10 text-slate-700 mx-auto mb-3" />
-        <p className="text-sm text-slate-500">Pick a repository from the Repositories tab to start editing files.</p>
+        <p className="text-sm text-slate-500">
+          Escolha um repositório na aba Repositórios para começar a editar arquivos.
+        </p>
       </div>
     );
   }
@@ -496,8 +630,11 @@ function EditorView() {
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-sm">
-          <button onClick={() => setFile(null)} className="flex items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Back
+          <button
+            onClick={() => setFile(null)}
+            className="flex items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" /> Voltar
           </button>
           <ChevronRight className="h-3.5 w-3.5 text-slate-600" />
           <span className="font-mono text-slate-300">{file.path}</span>
@@ -519,7 +656,7 @@ function EditorView() {
           <input
             value={commitMsg}
             onChange={(e) => setCommitMsg(e.target.value)}
-            placeholder="Commit message…"
+            placeholder="Mensagem do commit…"
             className="flex-1 min-w-[200px] rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
           />
           <button
@@ -527,10 +664,10 @@ function EditorView() {
             disabled={saving || !dirty || !commitMsg.trim()}
             className="rounded-lg bg-gradient-to-br from-emerald-400 to-sky-500 text-white px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {saving ? 'Committing…' : 'Commit'}
+            {saving ? 'Enviando…' : 'Commit'}
           </button>
         </div>
-        {!dirty && <p className="text-xs text-slate-600">No changes to commit.</p>}
+        {!dirty && <p className="text-xs text-slate-600">Nenhuma alteração para commitar.</p>}
       </div>
     );
   }
@@ -541,49 +678,54 @@ function EditorView() {
         <span className="font-medium text-slate-200">{repo.full_name}</span>
         <select
           value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-500"
+          onChange={(e) => {
+            setBranch(e.target.value);
+            setPath([]);
+            setFile(null);
+          }}
+          className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 outline-none"
         >
           {branches.map((b) => (
-            <option key={b.name} value={b.name}>{b.name}</option>
+            <option key={b.name} value={b.name}>
+              {b.name}
+            </option>
           ))}
         </select>
         <button
           onClick={() => setShowBranchForm((v) => !v)}
-          className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
         >
-          <Plus className="h-3.5 w-3.5" /> New branch
+          <Plus className="h-3.5 w-3.5" /> Nova branch
         </button>
       </div>
 
       {showBranchForm && (
-        <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-800/40 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             value={newBranchName}
             onChange={(e) => setNewBranchName(e.target.value)}
-            placeholder="new-branch-name"
-            className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
+            placeholder="nome-da-branch"
+            className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
           />
           <button
             onClick={createBranchFromHere}
             disabled={saving || !newBranchName.trim()}
             className="rounded-md bg-slate-700 hover:bg-slate-600 px-3 py-1.5 text-xs text-slate-100 transition-colors disabled:opacity-40"
           >
-            Create
+            Criar
           </button>
         </div>
       )}
 
       {path.length > 0 && (
         <div className="flex items-center gap-1 text-xs text-slate-500 flex-wrap">
-          <button onClick={() => setPath([])} className="hover:text-slate-300">root</button>
+          <button onClick={() => setPath([])} className="hover:text-slate-300">
+            root
+          </button>
           {path.map((p, i) => (
             <span key={i} className="flex items-center gap-1">
               <ChevronRight className="h-3 w-3" />
-              <button
-                onClick={() => setPath(path.slice(0, i + 1))}
-                className="hover:text-slate-300"
-              >
+              <button onClick={() => setPath(path.slice(0, i + 1))} className="hover:text-slate-300">
                 {p}
               </button>
             </span>
@@ -598,12 +740,15 @@ function EditorView() {
       ) : err ? (
         <div className="rounded-lg border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-300">{err}</div>
       ) : items.length === 0 ? (
-        <p className="text-center text-sm text-slate-500 py-8">This folder is empty.</p>
+        <p className="text-center text-sm text-slate-500 py-8">Esta pasta está vazia.</p>
       ) : (
         <ul className="rounded-lg border border-slate-800 bg-slate-800/30 divide-y divide-slate-800">
           {items
             .slice()
-            .sort((a, b) => (a.type === 'dir' ? -1 : 1) - (b.type === 'dir' ? -1 : 1) || a.name.localeCompare(b.name))
+            .sort(
+              (a, b) =>
+                (a.type === 'dir' ? -1 : 1) - (b.type === 'dir' ? -1 : 1) || a.name.localeCompare(b.name)
+            )
             .map((f) => (
               <li
                 key={f.sha}
@@ -630,10 +775,10 @@ function EditorView() {
 function PrsView() {
   const [repo, setRepo] = useState<GithubRepo | null>(null);
   const [prs, setPrs] = useState<GithubPr[]>([]);
+  const [branches, setBranches] = useState<GithubBranch[]>([]);
+  const [state, setState] = useState<'open' | 'closed' | 'all'>('open');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [state, setState] = useState<'open' | 'closed' | 'all'>('open');
-  const [branches, setBranches] = useState<GithubBranch[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: '', head: '', base: '', body: '' });
   const [creating, setCreating] = useState(false);
@@ -661,7 +806,7 @@ function PrsView() {
       const p = await listPrs(owner, name, state);
       setPrs(p);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not load pull requests');
+      setErr(e instanceof Error ? e.message : 'Não foi possível carregar os pull requests');
     } finally {
       setLoading(false);
     }
@@ -694,7 +839,7 @@ function PrsView() {
       setForm({ title: '', head: form.head, base: form.base, body: '' });
       await loadPrs();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not create pull request');
+      setErr(e instanceof Error ? e.message : 'Não foi possível criar o pull request');
     } finally {
       setCreating(false);
     }
@@ -704,7 +849,9 @@ function PrsView() {
     return (
       <div className="text-center py-16">
         <GitPullRequest className="h-10 w-10 text-slate-700 mx-auto mb-3" />
-        <p className="text-sm text-slate-500">Pick a repository from the Repositories tab to view and open pull requests.</p>
+        <p className="text-sm text-slate-500">
+          Escolha um repositório na aba Repositórios para ver e abrir pull requests.
+        </p>
       </div>
     );
   }
@@ -722,56 +869,54 @@ function PrsView() {
                 state === s ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {s}
+              {s === 'open' ? 'abertos' : s === 'closed' ? 'fechados' : 'todos'}
             </button>
           ))}
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="ml-auto flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-emerald-400 to-sky-500 text-white px-3 py-1.5 text-xs font-medium hover:opacity-90 transition-opacity"
+          className="ml-auto flex items-center gap-1 rounded-lg border border-slate-700 hover:border-slate-600 px-3 py-1.5 text-xs text-slate-300"
         >
-          <Plus className="h-3.5 w-3.5" /> New PR
+          <Plus className="h-3.5 w-3.5" /> Novo PR
         </button>
       </div>
 
       {showForm && (
-        <div className="rounded-xl border border-slate-800 bg-slate-800/40 p-4 space-y-3">
+        <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 space-y-3">
           <input
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="PR title…"
+            placeholder="Título do pull request"
             className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
           />
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className="block text-xs text-slate-500 mb-1">From (head)</span>
-              <select
-                value={form.head}
-                onChange={(e) => setForm({ ...form, head: e.target.value })}
-                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-sm text-slate-200 outline-none focus:border-slate-500"
-              >
-                {branches.map((b) => (
-                  <option key={b.name} value={b.name}>{b.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="block text-xs text-slate-500 mb-1">Into (base)</span>
-              <select
-                value={form.base}
-                onChange={(e) => setForm({ ...form, base: e.target.value })}
-                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-sm text-slate-200 outline-none focus:border-slate-500"
-              >
-                {branches.map((b) => (
-                  <option key={b.name} value={b.name}>{b.name}</option>
-                ))}
-              </select>
-            </label>
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={form.head}
+              onChange={(e) => setForm({ ...form, head: e.target.value })}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+            >
+              {branches.map((b) => (
+                <option key={b.name} value={b.name}>
+                  head: {b.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={form.base}
+              onChange={(e) => setForm({ ...form, base: e.target.value })}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+            >
+              {branches.map((b) => (
+                <option key={b.name} value={b.name}>
+                  base: {b.name}
+                </option>
+              ))}
+            </select>
           </div>
           <textarea
             value={form.body}
             onChange={(e) => setForm({ ...form, body: e.target.value })}
-            placeholder="Description (optional)…"
+            placeholder="Descrição (opcional)"
             rows={3}
             className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
           />
@@ -780,10 +925,10 @@ function PrsView() {
             disabled={creating || !form.title.trim() || !form.head || !form.base || form.head === form.base}
             className="rounded-lg bg-slate-700 hover:bg-slate-600 px-4 py-2 text-sm text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {creating ? 'Creating…' : 'Open pull request'}
+            {creating ? 'Criando…' : 'Abrir pull request'}
           </button>
           {form.head && form.base && form.head === form.base && (
-            <p className="text-xs text-amber-400/80">Head and base branches must differ.</p>
+            <p className="text-xs text-amber-400/80">As branches head e base precisam ser diferentes.</p>
           )}
         </div>
       )}
@@ -795,18 +940,15 @@ function PrsView() {
       ) : err ? (
         <div className="rounded-lg border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-300">{err}</div>
       ) : prs.length === 0 ? (
-        <p className="text-center text-sm text-slate-500 py-12">No {state} pull requests.</p>
+        <p className="text-center text-sm text-slate-500 py-12">Nenhum pull request {state === 'open' ? 'aberto' : state === 'closed' ? 'fechado' : ''}.</p>
       ) : (
         <ul className="space-y-1.5">
           {prs.map((pr) => (
             <li key={pr.number} className="rounded-lg border border-slate-800 bg-slate-800/40 px-3 py-2.5">
-              <a
-                href={pr.html_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-start gap-2 group"
-              >
-                <GitPullRequest className={`h-4 w-4 mt-0.5 shrink-0 ${pr.state === 'open' ? 'text-emerald-400' : 'text-slate-500'}`} />
+              <a href={pr.html_url} target="_blank" rel="noreferrer" className="flex items-start gap-2 group">
+                <GitPullRequest
+                  className={`h-4 w-4 mt-0.5 shrink-0 ${pr.state === 'open' ? 'text-emerald-400' : 'text-slate-500'}`}
+                />
                 <div className="min-w-0">
                   <p className="text-sm text-slate-100 group-hover:text-emerald-400 transition-colors">
                     <span className="text-slate-500">#{pr.number}</span> {pr.title}
