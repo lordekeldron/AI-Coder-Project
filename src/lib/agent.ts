@@ -6,9 +6,6 @@ export type AgentResponse = {
   code: CodeBlock[];
 };
 
-const GREETING_RE =
-  /^\s*(ol[aá]|oi|opa|e a[ií]|bom dia|boa tarde|boa noite|hello|hi|hey|salve)\b[.!?\s]*$/i;
-
 const PHASE_TEMPLATES: Record<
   AgentStep['phase'],
   (task: string) => { title: string; detail: string }
@@ -109,24 +106,92 @@ const ANSWER_TEMPLATES = [
     `Implementei "${truncate(task, 70)}" com atenção às fronteiras — a entrada é validada, resultados assíncronos são verificados antes do uso e falhas mostram um estado de erro real em vez de deixar dados malformados chegarem na UI. O módulo é coeso e exporta apenas o que os chamadores precisam.`,
 ];
 
+function normalizeText(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos (olá -> ola, aí -> ai)
+    .replace(/[^\w\s]/g, '') // remove pontuações
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function isGreeting(task: string): boolean {
-  return GREETING_RE.test(task.trim());
+  const clean = normalizeText(task);
+  if (!clean) return false;
+
+  const GREETING_STARTS = [
+    'ola',
+    'oi',
+    'oie',
+    'opa',
+    'e ai',
+    'eae',
+    'salve',
+    'bom dia',
+    'boa tarde',
+    'boa noite',
+    'hello',
+    'hi',
+    'hey',
+    'tudo bem',
+    'como vai',
+    'beleza',
+    'fala',
+    'fala ai',
+  ];
+
+  return GREETING_STARTS.some(
+    (g) => clean === g || clean.startsWith(g + ' ') || clean.endsWith(' ' + g)
+  );
+}
+
+function isHelpOrQuestion(task: string): boolean {
+  const clean = normalizeText(task);
+  return (
+    clean.includes('quem e voce') ||
+    clean.includes('o que voce faz') ||
+    clean.includes('como funciona') ||
+    clean.includes('como usar') ||
+    clean.includes('me ajuda') ||
+    clean === 'ajuda' ||
+    clean.includes('qual o seu nome') ||
+    clean.includes('para que serve')
+  );
 }
 
 export async function runAgent(task: string): Promise<AgentResponse> {
   await delay(450);
 
+  // Tratamento de saudações (Olá, Oi, Bom dia, etc.)
   if (isGreeting(task)) {
     return {
       steps: [
         {
           phase: 'understand',
-          title: 'Recebendo a saudação',
-          detail: 'Detectei uma mensagem de cumprimento. Respondendo de forma amigável em português.',
+          title: 'Saudação recebida',
+          detail: 'Mensagem de cumprimento identificada. Apresentando o agente e oferecendo assistência.',
         },
       ],
       content:
-        'Olá! 👋 Sou o agente de programação. Posso te ajudar a criar, corrigir ou explicar código passo a passo.\n\nÉ só descrever a tarefa (por exemplo: “crie um formulário com validação” ou “corrija esse bug no fetch”) e eu faço o resto.',
+        'Olá! 👋 Tudo bem? Sou o seu Agente de Programação.\n\nPosso te ajudar a criar, explicar ou corrigir código em várias linguagens e frameworks (TypeScript, React, Python, Node.js, etc.).\n\nO que você gostaria de construir hoje? Por exemplo:\n• *"Crie um componente de formulário com validação"*\n• *"Adicione persistência com localStorage"*\n• *"Crie um hook customizado de debounce"*\n• *"Corrija uma função assíncrona com timeout"*',
+      code: [],
+    };
+  }
+
+  // Tratamento de dúvidas sobre o que o agente faz
+  if (isHelpOrQuestion(task)) {
+    return {
+      steps: [
+        {
+          phase: 'understand',
+          title: 'Explicando funcionamento',
+          detail: 'Detalhando as capacidades e o fluxo de trabalho passo a passo do agente de programação.',
+        },
+      ],
+      content:
+        'Eu sou um agente focado em desenvolvimento de software! 🚀\n\nQuando você me pede uma tarefa de programação, eu trabalho em 4 passos:\n1. 🔍 **Entender**: Analiso o objetivo e identifico casos de borda.\n2. 📋 **Planejar**: Estruturo a arquitetura e os tipos de dados necessários.\n3. 💻 **Implementar**: Escrevo código limpo, tipado e completo.\n4. 🧠 **Revisar**: Confiro tratamento de erros, tipagem e consistência.\n\nBasta digitar a tarefa que você precisa implementar ou o problema que quer resolver!',
       code: [],
     };
   }
@@ -140,7 +205,7 @@ export async function runAgent(task: string): Promise<AgentResponse> {
   const answer = ANSWER_TEMPLATES[Math.floor(Math.random() * ANSWER_TEMPLATES.length)](task);
 
   const includeCode =
-    /api|fetch|form|input|hook|component|página|page|view|tela|build|implement|create|add|feature|function|crie|criar|implemente|adicione|corrija|bug|erro/i.test(
+    /api|fetch|form|input|hook|component|página|page|view|tela|build|implement|create|add|feature|function|crie|criar|implemente|adicione|corrija|bug|erro|script|classe|interface|typescript|javascript|python/i.test(
       task
     );
   const code = includeCode ? CODE_SAMPLES : [];

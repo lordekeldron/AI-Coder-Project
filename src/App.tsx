@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, Send, Sparkles, Terminal, Github } from 'lucide-react';
+import { Menu, Send, Sparkles, Terminal, Github, Download } from 'lucide-react';
 import { supabase, type Conversation, type Message } from '@/lib/supabase';
 import { runAgent, type AgentResponse } from '@/lib/agent';
 import { Sidebar } from '@/components/Sidebar';
 import { MessageList } from '@/components/Message';
 import { GithubPanel } from '@/components/GithubPanel';
+import { UpdatesModal } from '@/components/UpdatesModal';
+import { checkForUpdates } from '@/lib/updater';
 
 const SUGGESTIONS = [
   'Crie uma lista de tarefas com persistência no localStorage',
@@ -23,11 +25,25 @@ export default function App() {
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [hasUpdate, setHasUpdate] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadConversations();
+    checkRepoUpdates();
   }, []);
+
+  async function checkRepoUpdates() {
+    try {
+      const res = await checkForUpdates();
+      if (res.hasUpdate) {
+        setHasUpdate(true);
+      }
+    } catch {
+      // silencioso em background
+    }
+  }
 
   useEffect(() => {
     if (activeId) loadMessages(activeId);
@@ -198,16 +214,16 @@ export default function App() {
     setStreaming(placeholder);
 
     for (let i = 0; i < result.steps.length; i++) {
-      await delay(520);
+      await delay(420);
       setStreaming((prev) =>
         prev ? { ...prev, steps: result.steps.slice(0, i + 1) } : prev
       );
     }
 
-    await delay(380);
+    await delay(300);
     setStreaming((prev) => (prev ? { ...prev, content: result.content, code: result.code } : prev));
 
-    await delay(500);
+    await delay(400);
 
     const fallbackAgentMsg: Message = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
@@ -279,6 +295,8 @@ export default function App() {
           onNew={newConversation}
           onDelete={deleteConversation}
           loading={loadingConvs}
+          onOpenUpdates={() => setUpdatesOpen(true)}
+          hasUpdate={hasUpdate}
         />
       </aside>
 
@@ -297,6 +315,11 @@ export default function App() {
               onDelete={deleteConversation}
               loading={loadingConvs}
               onClose={() => setSidebarOpen(false)}
+              onOpenUpdates={() => {
+                setUpdatesOpen(true);
+                setSidebarOpen(false);
+              }}
+              hasUpdate={hasUpdate}
             />
           </div>
         </div>
@@ -315,7 +338,23 @@ export default function App() {
             <Terminal className="h-5 w-5 text-emerald-400" />
             <span className="font-semibold text-slate-100">Agente de Programação</span>
           </div>
+
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setUpdatesOpen(true)}
+              className="relative flex items-center gap-1.5 rounded-lg border border-slate-700 hover:border-slate-600 px-3 py-1.5 text-sm text-slate-300 transition-colors"
+              title="Verificar atualizações do repositório"
+            >
+              <Download className="h-4 w-4 text-emerald-400" />
+              <span className="hidden sm:inline">Atualizações</span>
+              {hasUpdate && (
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => setGithubOpen(true)}
               className="flex items-center gap-1.5 rounded-lg border border-slate-700 hover:border-slate-600 px-3 py-1.5 text-sm text-slate-300 transition-colors"
@@ -323,6 +362,7 @@ export default function App() {
               <Github className="h-4 w-4" />
               <span className="hidden sm:inline">GitHub</span>
             </button>
+
             <span className="flex items-center gap-1.5 text-xs text-slate-500">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
               Pronto
@@ -386,6 +426,12 @@ export default function App() {
         </div>
 
         {githubOpen && <GithubPanel onClose={() => setGithubOpen(false)} />}
+        {updatesOpen && (
+          <UpdatesModal
+            onClose={() => setUpdatesOpen(false)}
+            onUpdateDetected={setHasUpdate}
+          />
+        )}
       </main>
     </div>
   );

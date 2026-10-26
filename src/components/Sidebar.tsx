@@ -1,4 +1,4 @@
-import { MessageSquarePlus, Trash2, X } from 'lucide-react';
+import { Download, MessageSquarePlus, Trash2, X } from 'lucide-react';
 import type { Conversation } from '@/lib/supabase';
 
 type Props = {
@@ -9,9 +9,21 @@ type Props = {
   onDelete: (id: string) => void;
   loading: boolean;
   onClose?: () => void;
+  onOpenUpdates?: () => void;
+  hasUpdate?: boolean;
 };
 
-export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, loading, onClose }: Props) {
+export function Sidebar({
+  conversations,
+  activeId,
+  onSelect,
+  onNew,
+  onDelete,
+  loading,
+  onClose,
+  onOpenUpdates,
+  hasUpdate,
+}: Props) {
   return (
     <div className="flex h-full flex-col bg-slate-950 border-r border-slate-800">
       <div className="flex items-center justify-between px-4 h-14 border-b border-slate-800">
@@ -81,8 +93,25 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, lo
         )}
       </div>
 
-      <div className="border-t border-slate-800 px-4 py-3">
-        <p className="text-[11px] text-slate-600 leading-relaxed">
+      <div className="border-t border-slate-800 p-3 space-y-2">
+        {onOpenUpdates && (
+          <button
+            onClick={onOpenUpdates}
+            className="flex w-full items-center justify-between rounded-lg border border-slate-800 hover:border-slate-700 bg-slate-900/60 hover:bg-slate-900 px-3 py-2 text-xs text-slate-300 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Download className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Atualizações</span>
+            </span>
+            {hasUpdate && (
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+            )}
+          </button>
+        )}
+        <p className="px-1 text-[11px] text-slate-600 leading-relaxed">
           Agente de programação que raciocina passo a passo.
         </p>
       </div>
