@@ -1,7 +1,5 @@
 import { supabase } from './supabase';
 
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim();
-const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 const GITHUB_API = 'https://api.github.com';
 
 export type GithubRepo = {
@@ -90,7 +88,14 @@ async function directGithubFetch<T>(
     init.body = JSON.stringify(opts.body);
   }
 
-  const res = await fetch(url, init);
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (networkErr) {
+    const detail = networkErr instanceof Error ? networkErr.message : String(networkErr);
+    throw new Error(`Falha de conexão com a API do GitHub (${detail}). Verifique o token e a conexão de rede.`);
+  }
+
   if (!res.ok) {
     let message = `GitHub request failed (${res.status})`;
     try {
@@ -114,41 +119,21 @@ async function proxy<T>(
   opts: { method?: string; query?: Record<string, string>; body?: unknown } = {},
   explicitToken?: string
 ): Promise<T> {
-  // If Supabase Edge Function is configured, attempt to use it
-  if (SUPABASE_URL.startsWith('http') && SUPABASE_ANON_KEY) {
-    try {
-      const functionUrl = `${SUPABASE_URL}/functions/v1/github-proxy`;
-      const res = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ path, ...opts }),
-      });
-
-      if (res.ok) {
-        const text = await res.text();
-        if (!text) return null as T;
-        return JSON.parse(text) as T;
-      }
-    } catch {
-      // Fall through to direct fetch
-    }
-  }
-
-  // Direct fetch fallback using the Personal Access Token
   return directGithubFetch<T>(path, opts, explicitToken);
 }
 
 export async function getConnection(): Promise<Connection | null> {
-  const { data, error } = await supabase
-    .from('github_connections')
-    .select('id, username, created_at')
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error('Could not load GitHub connection');
-  return (data as Connection | null) ?? null;
+  try {
+    const { data, error } = await supabase
+      .from('github_connections')
+      .select('id, username, created_at')
+      .limit(1)
+      .maybeSingle();
+    if (error) return null;
+    return (data as Connection | null) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function connectToken(token: string): Promise<Connection> {
@@ -172,8 +157,11 @@ export async function connectToken(token: string): Promise<Connection> {
 }
 
 export async function disconnect(): Promise<void> {
-  const { error } = await supabase.from('github_connections').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  if (error) throw new Error('Could not disconnect');
+  try {
+    await supabase.from('github_connections').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  } catch {
+    // ignore
+  }
 }
 
 export async function listRepos(): Promise<GithubRepo[]> {

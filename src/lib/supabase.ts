@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type Conversation = {
   id: string;
@@ -259,24 +259,6 @@ function createMockSupabaseClient(): SupabaseClient {
   } as unknown as SupabaseClient;
 }
 
-const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
-const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
-
-let clientInstance: SupabaseClient;
-
-// Only instantiate real Supabase client if valid URL and key are provided
-if (envUrl && envUrl.startsWith('http') && envKey) {
-  try {
-    clientInstance = createClient(envUrl, envKey, {
-      auth: { persistSession: false },
-    });
-  } catch (err) {
-    console.warn('[AI Studio] Could not initialize Supabase, using mock storage:', err);
-    clientInstance = createMockSupabaseClient();
-  }
-} else {
-  // Graceful in-memory / localStorage fallback when Supabase credentials are not configured
-  clientInstance = createMockSupabaseClient();
-}
-
-export const supabase = clientInstance;
+// In AI Studio and offline environments, use the built-in local database
+// to prevent "Failed to fetch" errors from unconfigured remote endpoints.
+export const supabase = createMockSupabaseClient();

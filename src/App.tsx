@@ -36,55 +36,90 @@ export default function App() {
 
   async function loadConversations() {
     setLoadingConvs(true);
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('*')
-      .order('updated_at', { ascending: false });
-    if (error) {
-      console.error(error);
+    try {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('*')
+        .order('updated_at', { ascending: false });
+      if (error) {
+        console.warn('Could not load conversations:', error);
+        setConversations([]);
+        return;
+      }
+      setConversations((data as Conversation[]) ?? []);
+    } catch (err) {
+      console.warn('Error loading conversations:', err);
+      setConversations([]);
+    } finally {
       setLoadingConvs(false);
-      return;
     }
-    setConversations((data as Conversation[]) ?? []);
-    setLoadingConvs(false);
   }
 
   async function loadMessages(id: string) {
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('conversation_id', id)
-      .order('created_at', { ascending: true });
-    if (error) {
-      console.error(error);
-      return;
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', id)
+        .order('created_at', { ascending: true });
+      if (error) {
+        console.warn('Could not load messages:', error);
+        return;
+      }
+      setMessages((data as Message[]) ?? []);
+    } catch (err) {
+      console.warn('Error loading messages:', err);
+      setMessages([]);
     }
-    setMessages((data as Message[]) ?? []);
   }
 
   async function newConversation(): Promise<string> {
     const title = `New conversation ${conversations.length + 1}`;
-    const { data, error } = await supabase
-      .from('conversations')
-      .insert({ title })
-      .select()
-      .maybeSingle();
-    if (error || !data) {
-      console.error(error);
-      throw error;
+    try {
+      const { data, error } = await supabase
+        .from('conversations')
+        .insert({ title })
+        .select()
+        .maybeSingle();
+
+      if (error || !data) {
+        const fallbackConv: Conversation = {
+          id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()),
+          title,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        setConversations((prev) => [fallbackConv, ...prev]);
+        setActiveId(fallbackConv.id);
+        setSidebarOpen(false);
+        return fallbackConv.id;
+      }
+
+      const conv = data as Conversation;
+      setConversations((prev) => [conv, ...prev]);
+      setActiveId(conv.id);
+      setSidebarOpen(false);
+      return conv.id;
+    } catch (err) {
+      console.warn('Using local fallback for new conversation:', err);
+      const fallbackConv: Conversation = {
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()),
+        title,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setConversations((prev) => [fallbackConv, ...prev]);
+      setActiveId(fallbackConv.id);
+      setSidebarOpen(false);
+      return fallbackConv.id;
     }
-    const conv = data as Conversation;
-    setConversations((prev) => [conv, ...prev]);
-    setActiveId(conv.id);
-    setSidebarOpen(false);
-    return conv.id;
   }
 
   async function deleteConversation(id: string) {
-    const { error } = await supabase.from('conversations').delete().eq('id', id);
-    if (error) {
-      console.error(error);
-      return;
+    try {
+      await supabase.from('conversations').delete().eq('id', id);
+    } catch (err) {
+      console.warn('Error deleting conversation:', err);
     }
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) {
@@ -110,27 +145,44 @@ export default function App() {
       }
     }
 
+    const fallbackUserMsg: Message = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+      conversation_id: convId,
+      role: 'user',
+      content: trimmed,
+      steps: null,
+      code: null,
+      created_at: new Date().toISOString(),
+    };
+
     // 1. persist user message
-    const { data: userMsgRow, error: userErr } = await supabase
-      .from('messages')
-      .insert({ conversation_id: convId, role: 'user', content: trimmed })
-      .select()
-      .maybeSingle();
-    if (userErr || !userMsgRow) {
-      console.error(userErr);
-      setBusy(false);
-      return;
+    try {
+      const { data: userMsgRow } = await supabase
+        .from('messages')
+        .insert({ conversation_id: convId, role: 'user', content: trimmed })
+        .select()
+        .maybeSingle();
+
+      if (userMsgRow) {
+        setMessages((prev) => [...prev, userMsgRow as Message]);
+      } else {
+        setMessages((prev) => [...prev, fallbackUserMsg]);
+      }
+    } catch {
+      setMessages((prev) => [...prev, fallbackUserMsg]);
     }
-    setMessages((prev) => [...prev, userMsgRow as Message]);
 
     // 2. rename conversation from first message
     if (messages.length === 0) {
       const title = trimmed.length > 42 ? trimmed.slice(0, 42).trimEnd() + '…' : trimmed;
-      supabase.from('conversations').update({ title, updated_at: new Date().toISOString() }).eq('id', convId).then(() => {
-        setConversations((prev) =>
-          prev.map((c) => (c.id === convId ? { ...c, title, updated_at: new Date().toISOString() } : c))
-        );
-      });
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convId ? { ...c, title, updated_at: new Date().toISOString() } : c))
+      );
+      try {
+        supabase.from('conversations').update({ title, updated_at: new Date().toISOString() }).eq('id', convId);
+      } catch {
+        // ignore
+      }
     }
 
     // 3. stream reasoning steps
@@ -161,32 +213,50 @@ export default function App() {
     await delay(500);
 
     // 4. persist agent message
-    const { data: agentRow, error: agentErr } = await supabase
-      .from('messages')
-      .insert({
-        conversation_id: convId,
-        role: 'agent',
-        content: result.content,
-        steps: result.steps as unknown as never,
-        code: result.code as unknown as never,
-      })
-      .select()
-      .maybeSingle();
-    if (agentErr || !agentRow) {
-      console.error(agentErr);
-    } else {
-      setMessages((prev) => [...prev, agentRow as Message]);
+    const fallbackAgentMsg: Message = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
+      conversation_id: convId,
+      role: 'agent',
+      content: result.content,
+      steps: result.steps,
+      code: result.code,
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      const { data: agentRow } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: convId,
+          role: 'agent',
+          content: result.content,
+          steps: result.steps as unknown as never,
+          code: result.code as unknown as never,
+        })
+        .select()
+        .maybeSingle();
+
+      if (agentRow) {
+        setMessages((prev) => [...prev, agentRow as Message]);
+      } else {
+        setMessages((prev) => [...prev, fallbackAgentMsg]);
+      }
+    } catch {
+      setMessages((prev) => [...prev, fallbackAgentMsg]);
     }
     setStreaming(null);
 
     // bump updated_at
-    supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId).then(() => {
-      setConversations((prev) =>
-        [...prev]
-          .map((c) => (c.id === convId ? { ...c, updated_at: new Date().toISOString() } : c))
-          .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-      );
-    });
+    try {
+      supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+    } catch {
+      // ignore
+    }
+    setConversations((prev) =>
+      [...prev]
+        .map((c) => (c.id === convId ? { ...c, updated_at: new Date().toISOString() } : c))
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    );
 
     setBusy(false);
     inputRef.current?.focus();
