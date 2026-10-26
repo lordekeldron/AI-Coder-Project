@@ -78,6 +78,10 @@ function injectConsoleLogger(fullHtml: string, extraCss = '', extraJs = ''): str
       window.addEventListener('error', function(e) {
         send('error', [e.message || 'Erro na execução']);
       });
+      // Garante foco automático no iframe para captura imediata de teclado em jogos e inputs
+      window.addEventListener('load', function() { try { window.focus(); } catch(e) {} });
+      window.addEventListener('click', function() { try { window.focus(); } catch(e) {} });
+      window.addEventListener('pointerdown', function() { try { window.focus(); } catch(e) {} });
     })();
   </script>
   `;

@@ -80,7 +80,7 @@ export function getAppForTask(task: string): GeneratedApp {
   return generateCustomDynamicApp(task);
 }
 
-function generateTodoListApp(): GeneratedApp {
+export function generateTodoListApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -291,7 +291,7 @@ function generateTodoListApp(): GeneratedApp {
   };
 }
 
-function generateDebounceApp(): GeneratedApp {
+export function generateDebounceApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -425,7 +425,7 @@ function generateDebounceApp(): GeneratedApp {
   };
 }
 
-function generateFormApp(): GeneratedApp {
+export function generateFormApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -624,7 +624,7 @@ function generateFormApp(): GeneratedApp {
   };
 }
 
-function generateFetchWrapperApp(): GeneratedApp {
+export function generateFetchWrapperApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -798,7 +798,7 @@ function generateFetchWrapperApp(): GeneratedApp {
   };
 }
 
-function generateCalculatorApp(): GeneratedApp {
+export function generateCalculatorApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -932,7 +932,7 @@ function generateCalculatorApp(): GeneratedApp {
   };
 }
 
-function generateNotesApp(): GeneratedApp {
+export function generateNotesApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -1055,7 +1055,7 @@ function generateNotesApp(): GeneratedApp {
   };
 }
 
-function generateTimerApp(): GeneratedApp {
+export function generateTimerApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -1170,7 +1170,7 @@ function generateTimerApp(): GeneratedApp {
   };
 }
 
-function generateTicTacToeApp(): GeneratedApp {
+export function generateTicTacToeApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -1290,7 +1290,7 @@ function generateTicTacToeApp(): GeneratedApp {
   };
 }
 
-function generateTetrisApp(): GeneratedApp {
+export function generateTetrisApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -1804,7 +1804,7 @@ function generateTetrisApp(): GeneratedApp {
   };
 }
 
-function generateSnakeApp(): GeneratedApp {
+export function generateSnakeApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -2023,7 +2023,7 @@ function generateSnakeApp(): GeneratedApp {
   };
 }
 
-function generateMemoryGameApp(): GeneratedApp {
+export function generateMemoryGameApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -2170,7 +2170,7 @@ function generateMemoryGameApp(): GeneratedApp {
   };
 }
 
-function generateCurrencyConverterApp(): GeneratedApp {
+export function generateCurrencyConverterApp(): GeneratedApp {
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -2284,7 +2284,7 @@ function generateCurrencyConverterApp(): GeneratedApp {
   };
 }
 
-function generateCustomDynamicApp(task: string): GeneratedApp {
+export function generateCustomDynamicApp(task: string): GeneratedApp {
   const cleanTitle = task.length > 50 ? task.slice(0, 50).trim() + '…' : task;
 
   const html = `<!doctype html>

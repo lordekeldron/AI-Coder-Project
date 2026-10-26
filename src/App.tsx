@@ -6,8 +6,14 @@ import { Sidebar } from '@/components/Sidebar';
 import { MessageList } from '@/components/Message';
 import { GithubPanel } from '@/components/GithubPanel';
 import { UpdatesModal } from '@/components/UpdatesModal';
+import { ModelInfoModal } from '@/components/ModelInfoModal';
+import { ContextShiftBanner } from '@/components/ContextShiftBanner';
 import { checkForUpdates } from '@/lib/updater';
-import { generateConversationTitle } from '@/lib/titleGenerator';
+import {
+  generateConversationTitle,
+  detectContextShift,
+  type ContextShiftResult,
+} from '@/lib/titleGenerator';
 
 const SUGGESTIONS = [
   'Crie uma lista de tarefas com persistência no localStorage',
@@ -28,7 +34,33 @@ export default function App() {
   const [githubOpen, setGithubOpen] = useState(false);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
+  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [autoRenameEnabled, setAutoRenameEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ai_studio_auto_rename_context') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [pendingShift, setPendingShift] = useState<ContextShiftResult | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  function triggerToast(msg: string) {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((curr) => (curr === msg ? null : curr));
+    }, 4500);
+  }
+
+  function handleToggleAutoRename(enabled: boolean) {
+    setAutoRenameEnabled(enabled);
+    try {
+      localStorage.setItem('ai_studio_auto_rename_context', String(enabled));
+    } catch {
+      // fallback
+    }
+  }
 
   useEffect(() => {
     loadConversations();
@@ -47,6 +79,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    setPendingShift(null);
     if (activeId) loadMessages(activeId);
     else setMessages([]);
   }, [activeId]);
@@ -63,7 +96,15 @@ export default function App() {
         setConversations([]);
         return;
       }
-      setConversations((data as Conversation[]) ?? []);
+      const rawList = (data as Conversation[]) ?? [];
+      // Higienização estrita: remove contadores como "Nova conversa 1", "Nova conversa 2"
+      const sanitized = rawList.map((c) => {
+        if (/^Nova conversa \d+$/i.test(c.title)) {
+          return { ...c, title: 'Nova conversa' };
+        }
+        return c;
+      });
+      setConversations(sanitized);
     } catch (err) {
       console.warn('Error loading conversations:', err);
       setConversations([]);
@@ -91,7 +132,8 @@ export default function App() {
   }
 
   async function newConversation(): Promise<string> {
-    const title = `Nova conversa ${conversations.length + 1}`;
+    // Títulos NUNCA recebem números ou contadores (ex: "Nova conversa 1")
+    const title = 'Nova conversa';
     try {
       const { data, error } = await supabase
         .from('conversations')
@@ -188,6 +230,7 @@ export default function App() {
       created_at: new Date().toISOString(),
     };
 
+    let savedUserMsg: Message = fallbackUserMsg;
     // 1. Salva mensagem do usuário
     try {
       const { data: userMsgRow } = await supabase
@@ -197,19 +240,19 @@ export default function App() {
         .maybeSingle();
 
       if (userMsgRow) {
-        setMessages((prev) => [...prev, userMsgRow as Message]);
-      } else {
-        setMessages((prev) => [...prev, fallbackUserMsg]);
+        savedUserMsg = userMsgRow as Message;
       }
     } catch {
-      setMessages((prev) => [...prev, fallbackUserMsg]);
+      // fallback
     }
+    setMessages((prev) => [...prev, savedUserMsg]);
+    const allHistory = [...messages, savedUserMsg];
 
-    // 2. Criação Inteligente do Título Contextual baseado no assunto
+    // 2. Criação Inteligente do Título Contextual baseado no assunto inicial
     const currentConv = conversations.find((c) => c.id === convId);
     const isGenericTitle =
       !currentConv ||
-      currentConv.title.startsWith('Nova conversa') ||
+      /^Nova conversa( \d+)?$/i.test(currentConv.title.trim()) ||
       currentConv.title.startsWith('Conversa') ||
       currentConv.title.trim() === '';
 
@@ -230,8 +273,8 @@ export default function App() {
       }
     }
 
-    // 3. Execução do raciocínio e geração pelo agente
-    const result: AgentResponse = await runAgent(trimmed);
+    // 3. Execução do raciocínio e geração pelo agente com histórico contextual nativo
+    const result: AgentResponse = await runAgent(trimmed, allHistory);
 
     const placeholderId = 'streaming';
     const placeholder: Message = {
@@ -291,8 +334,16 @@ export default function App() {
     }
     setStreaming(null);
 
-    // 5. Refina o título se um aplicativo específico tiver sido gerado
-    if (result.code && result.code.length > 0 && result.code[0]?.filename) {
+    // 5. Refinamento de título ou detecção de Mudança de Contexto (Context Shift)
+    const updatedConv = conversations.find((c) => c.id === convId);
+    const hasMeaningfulTitle =
+      updatedConv &&
+      !/^Nova conversa( \d+)?$/i.test(updatedConv.title.trim()) &&
+      !updatedConv.title.startsWith('Conversa') &&
+      updatedConv.title !== 'Boas-vindas' &&
+      updatedConv.title !== 'Sobre o Agente';
+
+    if (!hasMeaningfulTitle && result.code && result.code.length > 0 && result.code[0]?.filename) {
       const refinedTitle = generateConversationTitle(trimmed, result.code[0].filename);
       setConversations((prev) =>
         prev.map((c) =>
@@ -307,12 +358,31 @@ export default function App() {
       } catch {
         // ignore
       }
-    } else {
-      try {
-        supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
-      } catch {
-        // ignore
+    } else if (hasMeaningfulTitle) {
+      // O título original já está consolidado. Verificamos se houve mudança de contexto ao longo do tempo:
+      const shift = detectContextShift({
+        currentTitle: updatedConv.title,
+        userMessage: trimmed,
+        appCode: result.code,
+        history: allHistory,
+      });
+
+      if (shift && shift.hasShifted) {
+        if (autoRenameEnabled) {
+          // Atualiza automaticamente o título conforme preferência do usuário
+          renameConversation(convId, shift.proposedTitle);
+          triggerToast(`Título da conversa atualizado automaticamente para: "${shift.proposedTitle}"`);
+        } else {
+          // Pergunta ao usuário se ele deseja mudar o título para se encaixar no contexto atual
+          setPendingShift(shift);
+        }
       }
+    }
+
+    try {
+      supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+    } catch {
+      // ignore
     }
 
     setConversations((prev) =>
@@ -333,6 +403,7 @@ export default function App() {
   }
 
   const hasMessages = messages.length > 0;
+  const activeConv = conversations.find((c) => c.id === activeId);
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100">
@@ -350,6 +421,8 @@ export default function App() {
           loading={loadingConvs}
           onOpenUpdates={() => setUpdatesOpen(true)}
           hasUpdate={hasUpdate}
+          autoRenameEnabled={autoRenameEnabled}
+          onToggleAutoRename={handleToggleAutoRename}
         />
       </aside>
 
@@ -374,6 +447,8 @@ export default function App() {
                 setSidebarOpen(false);
               }}
               hasUpdate={hasUpdate}
+              autoRenameEnabled={autoRenameEnabled}
+              onToggleAutoRename={handleToggleAutoRename}
             />
           </div>
         </div>
@@ -393,7 +468,24 @@ export default function App() {
             <span className="font-semibold text-slate-100">Agente de Programação</span>
           </div>
 
+          {activeConv && !/^Nova conversa( \d+)?$/i.test(activeConv.title.trim()) && (
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 max-w-xs text-xs text-slate-300">
+              <span className="text-slate-500 text-[10px] uppercase font-semibold">Contexto:</span>
+              <span className="truncate font-medium text-slate-200">{activeConv.title}</span>
+            </div>
+          )}
+
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setModelModalOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1.5 text-xs text-indigo-300 transition-all font-medium shadow-sm"
+              title="Detalhes do modelo Qwen3-Coder-30B-A3B-Instruct"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+              <span className="font-semibold text-slate-200">Qwen3-Coder</span>
+              <span className="hidden sm:inline font-mono text-[10px] text-indigo-300/80 bg-indigo-500/20 px-1 py-0.5 rounded">30B MoE</span>
+            </button>
+
             <button
               onClick={() => setUpdatesOpen(true)}
               className="relative flex items-center gap-1.5 rounded-lg border border-slate-700 hover:border-slate-600 px-3 py-1.5 text-sm text-slate-300 transition-colors"
@@ -424,16 +516,33 @@ export default function App() {
           </div>
         </header>
 
+        {/* Banner interativo de mudança de contexto */}
+        {pendingShift && (
+          <ContextShiftBanner
+            shift={pendingShift}
+            autoRenameEnabled={autoRenameEnabled}
+            onApply={(newTitle) => {
+              if (activeId) {
+                renameConversation(activeId, newTitle);
+                triggerToast(`Título da conversa atualizado para: "${newTitle}"`);
+                setPendingShift(null);
+              }
+            }}
+            onDismiss={() => setPendingShift(null)}
+            onToggleAutoRename={handleToggleAutoRename}
+          />
+        )}
+
         <div className="flex-1 overflow-y-auto">
           {!hasMessages && !streaming ? (
             <div className="flex h-full flex-col items-center justify-center px-6 py-12">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-sky-500 text-white shadow-lg mb-5">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-sky-500 to-emerald-400 text-white shadow-lg mb-5">
                 <Sparkles className="h-7 w-7" />
               </div>
               <h1 className="text-2xl font-semibold text-slate-100 mb-2">O que devo construir?</h1>
-              <p className="text-slate-400 text-center max-w-md mb-8 leading-relaxed">
-                Descreva uma tarefa de programação e o agente vai raciocinar passo a passo —
-                entender, planejar, implementar e revisar — e devolver código funcional com preview ao vivo.
+              <p className="text-slate-400 text-center max-w-md mb-8 leading-relaxed text-sm">
+                Alimentado pelo modelo <span className="text-cyan-400 font-semibold">Qwen3-Coder-30B-A3B-Instruct</span> (MoE 256K).
+                Descreva uma tarefa de programação e o agente vai raciocinar passo a passo e devolver código executável com preview ao vivo.
               </p>
               <div className="grid gap-2 sm:grid-cols-2 w-full max-w-2xl">
                 {SUGGESTIONS.map((s) => (
@@ -479,6 +588,14 @@ export default function App() {
           </div>
         </div>
 
+        {/* Notificação toast quando o título é atualizado automaticamente */}
+        {toastMessage && (
+          <div className="fixed bottom-20 right-6 z-50 flex items-center gap-2 rounded-xl border border-sky-500/40 bg-slate-900/95 px-4 py-2.5 text-xs text-sky-200 shadow-2xl backdrop-blur animate-in fade-in slide-in-from-bottom-2">
+            <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+
         {githubOpen && <GithubPanel onClose={() => setGithubOpen(false)} />}
         {updatesOpen && (
           <UpdatesModal
@@ -486,6 +603,10 @@ export default function App() {
             onUpdateDetected={setHasUpdate}
           />
         )}
+        <ModelInfoModal
+          isOpen={modelModalOpen}
+          onClose={() => setModelModalOpen(false)}
+        />
       </main>
     </div>
   );

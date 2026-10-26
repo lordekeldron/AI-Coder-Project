@@ -13,6 +13,8 @@ type Props = {
   onClose?: () => void;
   onOpenUpdates?: () => void;
   hasUpdate?: boolean;
+  autoRenameEnabled?: boolean;
+  onToggleAutoRename?: (enabled: boolean) => void;
 };
 
 export function Sidebar({
@@ -26,6 +28,8 @@ export function Sidebar({
   onClose,
   onOpenUpdates,
   hasUpdate,
+  autoRenameEnabled = false,
+  onToggleAutoRename,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -160,7 +164,33 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="border-t border-slate-800 p-3 space-y-2">
+      <div className="border-t border-slate-800 p-3 space-y-2.5">
+        {onToggleAutoRename && (
+          <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/60 p-2.5 text-xs">
+            <div className="flex flex-col pr-2">
+              <span className="font-medium text-slate-200">Auto-renomear</span>
+              <span className="text-[10px] text-slate-400">Atualiza se o assunto mudar</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onToggleAutoRename(!autoRenameEnabled)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                autoRenameEnabled ? 'bg-sky-500' : 'bg-slate-700'
+              }`}
+              role="switch"
+              aria-checked={autoRenameEnabled}
+              title="Ativar/desativar renomeação automática por contexto"
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  autoRenameEnabled ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        )}
+
         {onOpenUpdates && (
           <button
             onClick={onOpenUpdates}
@@ -179,7 +209,7 @@ export function Sidebar({
           </button>
         )}
         <p className="px-1 text-[11px] text-slate-600 leading-relaxed">
-          Agente de programação que raciocina passo a passo.
+          Títulos contextuais inteligentes · Sem contadores
         </p>
       </div>
     </div>
