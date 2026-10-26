@@ -19,13 +19,13 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, lo
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-sky-500 text-white text-xs font-bold">
             A
           </div>
-          <span className="font-semibold text-slate-100">Agent</span>
+          <span className="font-semibold text-slate-100">Agente</span>
         </div>
         {onClose && (
           <button
             onClick={onClose}
             className="lg:hidden text-slate-400 hover:text-slate-100 transition-colors"
-            aria-label="Close sidebar"
+            aria-label="Fechar menu"
           >
             <X className="h-5 w-5" />
           </button>
@@ -38,7 +38,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, lo
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-2.5 text-sm font-medium text-slate-100 transition-colors"
         >
           <MessageSquarePlus className="h-4 w-4" />
-          New conversation
+          Nova conversa
         </button>
       </div>
 
@@ -50,7 +50,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, lo
             ))}
           </div>
         ) : conversations.length === 0 ? (
-          <p className="px-3 py-6 text-center text-sm text-slate-500">No conversations yet.</p>
+          <p className="px-3 py-6 text-center text-sm text-slate-500">Nenhuma conversa ainda.</p>
         ) : (
           <ul className="space-y-1">
             {conversations.map((c) => (
@@ -70,7 +70,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, lo
                       onDelete(c.id);
                     }}
                     className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 transition-all"
-                    aria-label="Delete conversation"
+                    aria-label="Excluir conversa"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -83,7 +83,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, lo
 
       <div className="border-t border-slate-800 px-4 py-3">
         <p className="text-[11px] text-slate-600 leading-relaxed">
-          AI programming agent that reasons step by step.
+          Agente de programação que raciocina passo a passo.
         </p>
       </div>
     </div>
