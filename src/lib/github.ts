@@ -2,6 +2,20 @@ import { supabase } from './supabase';
 
 const GITHUB_API = 'https://api.github.com';
 
+/**
+ * Client ID de um GitHub OAuth App (público).
+ * Crie em: https://github.com/settings/developers → New OAuth App
+ * - Homepage URL: qualquer (ex: http://localhost:3000)
+ * - Authorization callback URL: http://localhost:3000 (não é usado no Device Flow)
+ *
+ * Para Device Flow, o app pode ser "public". Cole o Client ID abaixo
+ * ou defina VITE_GITHUB_CLIENT_ID no .env.
+ */
+const GITHUB_CLIENT_ID =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: { VITE_GITHUB_CLIENT_ID?: string } }).env?.VITE_GITHUB_CLIENT_ID) ||
+  '';
+
 export type GithubRepo = {
   id: number;
   name: string;
@@ -49,6 +63,14 @@ export type Connection = {
   created_at: string;
 };
 
+export type DeviceCodeResponse = {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+};
+
 async function getStoredToken(): Promise<string | null> {
   try {
     const { data } = await supabase
@@ -69,7 +91,7 @@ async function directGithubFetch<T>(
 ): Promise<T> {
   const token = explicitToken ?? (await getStoredToken());
   if (!token) {
-    throw new Error('GitHub account is not connected');
+    throw new Error('Conta do GitHub não está conectada');
   }
 
   const qs = opts.query ? '?' + new URLSearchParams(opts.query).toString() : '';
@@ -93,11 +115,13 @@ async function directGithubFetch<T>(
     res = await fetch(url, init);
   } catch (networkErr) {
     const detail = networkErr instanceof Error ? networkErr.message : String(networkErr);
-    throw new Error(`Falha de conexão com a API do GitHub (${detail}). Verifique o token e a conexão de rede.`);
+    throw new Error(
+      `Falha de conexão com a API do GitHub (${detail}). Verifique o token e a conexão de rede.`
+    );
   }
 
   if (!res.ok) {
-    let message = `GitHub request failed (${res.status})`;
+    let message = `Requisição ao GitHub falhou (${res.status})`;
     try {
       const err = await res.json();
       if (err && typeof err.message === 'string') {
@@ -136,14 +160,13 @@ export async function getConnection(): Promise<Connection | null> {
   }
 }
 
+/** Conecta com um Personal Access Token (fallback). */
 export async function connectToken(token: string): Promise<Connection> {
   const trimmed = token.trim();
-  if (!trimmed) throw new Error('Token is required');
+  if (!trimmed) throw new Error('Token é obrigatório');
 
-  // Validate the token by fetching the authenticated user directly
   const user = await proxy<{ login: string }>('/user', { method: 'GET' }, trimmed);
 
-  // Replace any existing connection
   await supabase.from('github_connections').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
   const { data, error } = await supabase
@@ -152,8 +175,126 @@ export async function connectToken(token: string): Promise<Connection> {
     .select('id, username, created_at')
     .maybeSingle();
 
-  if (error || !data) throw new Error('Could not save GitHub connection');
+  if (error || !data) throw new Error('Não foi possível salvar a conexão do GitHub');
   return data as Connection;
+}
+
+/**
+ * Inicia o GitHub Device Flow (OAuth).
+ * O usuário autoriza no navegador com um código curto — não precisa criar PAT.
+ */
+export async function startDeviceFlow(): Promise<DeviceCodeResponse> {
+  if (!GITHUB_CLIENT_ID) {
+    throw new Error(
+      'GITHUB_CLIENT_ID não configurado. Defina VITE_GITHUB_CLIENT_ID no .env ou use o fallback de token pessoal.'
+    );
+  }
+
+  const body = new URLSearchParams({
+    client_id: GITHUB_CLIENT_ID,
+    scope: 'repo read:user',
+  });
+
+  const res = await fetch('https://github.com/login/device/code', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Falha ao iniciar Device Flow: ${text || res.status}`);
+  }
+
+  const data = (await res.json()) as DeviceCodeResponse & { error?: string; error_description?: string };
+  if (data.error) {
+    throw new Error(data.error_description || data.error);
+  }
+  return data;
+}
+
+/**
+ * Faz polling até o usuário autorizar (ou expirar / recusar).
+ * Retorna a Connection quando sucesso.
+ */
+export async function pollDeviceFlow(
+  deviceCode: string,
+  intervalSec = 5,
+  signal?: AbortSignal
+): Promise<Connection> {
+  if (!GITHUB_CLIENT_ID) {
+    throw new Error('GITHUB_CLIENT_ID não configurado');
+  }
+
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve, reject) => {
+      const t = setTimeout(resolve, ms);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(t);
+        reject(new DOMException('Aborted', 'AbortError'));
+      });
+    });
+
+  let interval = intervalSec * 1000;
+
+  while (true) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    await sleep(interval);
+
+    const body = new URLSearchParams({
+      client_id: GITHUB_CLIENT_ID,
+      device_code: deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+    });
+
+    const res = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+      signal,
+    });
+
+    const data = (await res.json()) as {
+      access_token?: string;
+      token_type?: string;
+      scope?: string;
+      error?: string;
+      error_description?: string;
+      interval?: number;
+    };
+
+    if (data.access_token) {
+      // Salva como se fosse um token normal
+      return connectToken(data.access_token);
+    }
+
+    if (data.error === 'authorization_pending') {
+      continue;
+    }
+    if (data.error === 'slow_down') {
+      interval = (data.interval ?? intervalSec + 5) * 1000;
+      continue;
+    }
+    if (data.error === 'expired_token') {
+      throw new Error('O código expirou. Tente novamente.');
+    }
+    if (data.error === 'access_denied') {
+      throw new Error('Autorização negada pelo usuário.');
+    }
+
+    throw new Error(data.error_description || data.error || 'Falha na autorização');
+  }
+}
+
+export function hasDeviceFlowSupport(): boolean {
+  return Boolean(GITHUB_CLIENT_ID);
 }
 
 export async function disconnect(): Promise<void> {
@@ -233,7 +374,11 @@ export async function createBranch(
   });
 }
 
-export async function listPrs(owner: string, repo: string, state: 'open' | 'closed' | 'all' = 'open'): Promise<GithubPr[]> {
+export async function listPrs(
+  owner: string,
+  repo: string,
+  state: 'open' | 'closed' | 'all' = 'open'
+): Promise<GithubPr[]> {
   const prs = await proxy<GithubPr[]>(`/repos/${owner}/${repo}/pulls`, {
     query: { state, per_page: '30' },
   });
@@ -256,6 +401,6 @@ export async function createPr(
 
 export function parseRepo(fullName: string): { owner: string; repo: string } {
   const [owner, repo] = fullName.split('/');
-  if (!owner || !repo) throw new Error('Invalid repository name');
+  if (!owner || !repo) throw new Error('Nome de repositório inválido');
   return { owner, repo };
 }
