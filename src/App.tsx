@@ -7,10 +7,10 @@ import { MessageList } from '@/components/Message';
 import { GithubPanel } from '@/components/GithubPanel';
 
 const SUGGESTIONS = [
-  'Build a todo list with localStorage persistence',
-  'Create a reusable debounce hook in TypeScript',
-  'Fix a form that submits even when validation fails',
-  'Add a fetch wrapper with retry and timeout',
+  'Crie uma lista de tarefas com persistência no localStorage',
+  'Crie um hook de debounce reutilizável em TypeScript',
+  'Corrija um formulário que envia mesmo com validação falhando',
+  'Adicione um wrapper de fetch com retry e timeout',
 ];
 
 export default function App() {
@@ -74,7 +74,7 @@ export default function App() {
   }
 
   async function newConversation(): Promise<string> {
-    const title = `New conversation ${conversations.length + 1}`;
+    const title = `Nova conversa ${conversations.length + 1}`;
     try {
       const { data, error } = await supabase
         .from('conversations')
@@ -155,7 +155,6 @@ export default function App() {
       created_at: new Date().toISOString(),
     };
 
-    // 1. persist user message
     try {
       const { data: userMsgRow } = await supabase
         .from('messages')
@@ -172,7 +171,6 @@ export default function App() {
       setMessages((prev) => [...prev, fallbackUserMsg]);
     }
 
-    // 2. rename conversation from first message
     if (messages.length === 0) {
       const title = trimmed.length > 42 ? trimmed.slice(0, 42).trimEnd() + '…' : trimmed;
       setConversations((prev) =>
@@ -185,7 +183,6 @@ export default function App() {
       }
     }
 
-    // 3. stream reasoning steps
     const result: AgentResponse = await runAgent(trimmed);
 
     const placeholderId = 'streaming';
@@ -212,7 +209,6 @@ export default function App() {
 
     await delay(500);
 
-    // 4. persist agent message
     const fallbackAgentMsg: Message = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
       conversation_id: convId,
@@ -246,7 +242,6 @@ export default function App() {
     }
     setStreaming(null);
 
-    // bump updated_at
     try {
       supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
     } catch {
@@ -273,7 +268,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100">
-      {/* Sidebar — desktop */}
       <aside className="hidden lg:block w-72 shrink-0">
         <Sidebar
           conversations={conversations}
@@ -288,7 +282,6 @@ export default function App() {
         />
       </aside>
 
-      {/* Sidebar — mobile drawer */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
@@ -309,19 +302,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Main */}
       <main className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center gap-3 h-14 px-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden text-slate-400 hover:text-slate-100 transition-colors"
-            aria-label="Open sidebar"
+            aria-label="Abrir menu"
           >
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2">
             <Terminal className="h-5 w-5 text-emerald-400" />
-            <span className="font-semibold text-slate-100">Programming Agent</span>
+            <span className="font-semibold text-slate-100">Agente de Programação</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <button
@@ -333,7 +325,7 @@ export default function App() {
             </button>
             <span className="flex items-center gap-1.5 text-xs text-slate-500">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Ready
+              Pronto
             </span>
           </div>
         </header>
@@ -344,10 +336,10 @@ export default function App() {
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-sky-500 text-white shadow-lg mb-5">
                 <Sparkles className="h-7 w-7" />
               </div>
-              <h1 className="text-2xl font-semibold text-slate-100 mb-2">What should I build?</h1>
+              <h1 className="text-2xl font-semibold text-slate-100 mb-2">O que devo construir?</h1>
               <p className="text-slate-400 text-center max-w-md mb-8 leading-relaxed">
-                Describe a coding task and the agent will reason through it step by step —
-                understand, plan, implement, and review — then hand back working code.
+                Descreva uma tarefa de programação e o agente vai raciocinar passo a passo —
+                entender, planejar, implementar e revisar — e devolver código funcional.
               </p>
               <div className="grid gap-2 sm:grid-cols-2 w-full max-w-2xl">
                 {SUGGESTIONS.map((s) => (
@@ -375,20 +367,20 @@ export default function App() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 rows={1}
-                placeholder="Describe a task for the agent…"
+                placeholder="Descreva uma tarefa para o agente…"
                 className="flex-1 resize-none bg-transparent text-slate-100 placeholder:text-slate-500 outline-none max-h-32 py-1.5 leading-relaxed"
               />
               <button
                 onClick={() => send(input)}
                 disabled={busy || !input.trim()}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-sky-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
-                aria-label="Send"
+                aria-label="Enviar"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
             <p className="mt-2 text-center text-[11px] text-slate-600">
-              Press Enter to send · Shift+Enter for a new line
+              Enter para enviar · Shift+Enter para nova linha
             </p>
           </div>
         </div>
